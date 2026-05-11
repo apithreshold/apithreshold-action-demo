@@ -19,8 +19,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Pass secrets via `secrets:` so the composite action receives them (job `env` alone
-      # is not reliably visible inside composite `run` steps — private clone stayed anonymous).
+      # Local composite actions (`uses: ./...`) cannot use a step-level `secrets:` map (workflow
+      # parse error). Pass credentials via `with` from the workflow secrets context instead.
       - name: APIThreshold gate
         uses: ./.github/actions/apithreshold-gate
         with:
@@ -29,6 +29,5 @@ jobs:
           mode: learning
           # Action default is git (backend). When on PyPI: install-source: pypi
           install-source: git
-        secrets:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          BACKEND_GITHUB_TOKEN: ${{ secrets.BACKEND_GITHUB_TOKEN }}
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          backend_github_token: ${{ secrets.BACKEND_GITHUB_TOKEN }}

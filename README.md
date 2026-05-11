@@ -51,7 +51,7 @@ This is a **standalone git repository** you push under the **`apithreshold` org*
 
    **PAT for `BACKEND_GITHUB_TOKEN`:** GitHub → **Settings** (your account or a bot user) → **Developer settings** → **Personal access tokens**. Create a **fine-grained** token with **Contents: Read** on repository **`apithreshold/backend`** only (minimum scope). Paste the token as secret **`BACKEND_GITHUB_TOKEN`** on **`apithreshold-action-demo`**.
 
-   If **`backend` is public**, you can omit **`BACKEND_GITHUB_TOKEN`**; leave the workflow `secrets:` entry pointing at it anyway (empty → anonymous clone).
+   If **`backend` is public**, you can omit **`BACKEND_GITHUB_TOKEN`**; the workflow still passes `${{ secrets.BACKEND_GITHUB_TOKEN }}` into the action (empty → anonymous clone).
 
    **Pull requests from forks** do not receive repository secrets; those workflow runs will fail the clone step unless **`backend`** is public. Same-repo PRs are fine.
 

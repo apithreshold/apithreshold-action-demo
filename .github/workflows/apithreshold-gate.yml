@@ -30,21 +30,19 @@ jobs:
       - name: Checkout (this repo)
         uses: actions/checkout@v4
 
-      # GITHUB_TOKEN only has access to *this* repo. It cannot read another private repo
-      # (e.g. apithreshold/backend). If BACKEND_GITHUB_TOKEN is unset, checkout still runs
-      # using github.token — that works for a *public* backend, and fails with 403 for private.
-      - name: Backend clone — credential hint
+      # GITHUB_TOKEN is scoped to *this* repo only — it cannot read another private repo.
+      # Do not fall back to github.token when backend is private (that only yields a cryptic 403).
+      # If apithreshold/backend is public, set Actions variable BACKEND_IS_PUBLIC=true (see README).
+      - name: Backend clone — require PAT unless backend is public
+        if: ${{ vars.BACKEND_IS_PUBLIC != 'true' }}
         env:
-          HAS_BACKEND_PAT: ${{ secrets.BACKEND_GITHUB_TOKEN != '' }}
+          PAT: ${{ secrets.BACKEND_GITHUB_TOKEN }}
         run: |
-          case "${HAS_BACKEND_PAT}" in
-            true|True)
-              echo "BACKEND_GITHUB_TOKEN is set; checkout will use that PAT for ${BACKEND_REPOSITORY}."
-              ;;
-            *)
-              echo "::warning::BACKEND_GITHUB_TOKEN is not set. Checkout will use GITHUB_TOKEN from ${GITHUB_REPOSITORY}, which cannot access other *private* repositories. If ${BACKEND_REPOSITORY} is private, add repository secret BACKEND_GITHUB_TOKEN (fine-grained: Contents Read on that repo; authorize SSO for the token if your org requires it)."
-              ;;
-          esac
+          if [ -z "${PAT}" ]; then
+            echo "::error::BACKEND_GITHUB_TOKEN is missing or unavailable (common on PRs from forks). The job GITHUB_TOKEN for this repository cannot clone a private ${BACKEND_REPOSITORY}. Fix: add repository secret BACKEND_GITHUB_TOKEN (fine-grained PAT: Contents Read on that repo; SSO-authorized for the org if required). If ${BACKEND_REPOSITORY} is public, set repository Actions variable BACKEND_IS_PUBLIC to true. See README."
+            exit 1
+          fi
+          echo "BACKEND_GITHUB_TOKEN is set. If checkout still returns 403, the PAT is rejected (wrong repo access, expired token, or missing SSO authorization)."
 
       - name: Checkout apithreshold backend
         uses: actions/checkout@v4
@@ -52,7 +50,7 @@ jobs:
           repository: ${{ env.BACKEND_REPOSITORY }}
           ref: ${{ env.BACKEND_REF }}
           path: _backend_src
-          token: ${{ secrets.BACKEND_GITHUB_TOKEN || github.token }}
+          token: ${{ vars.BACKEND_IS_PUBLIC == 'true' && github.token || secrets.BACKEND_GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5

@@ -28,6 +28,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      actions: write
     steps:
       - name: Checkout (this repo)
         uses: actions/checkout@v4
@@ -146,10 +147,28 @@ jobs:
               echo "   \`\`\`"
               echo "4. **Policy:** raise quality / thresholds in product config, or set \`APITHRESHOLD_MODE: learning\` in workflow \`env\` for non-blocking runs."
               echo ""
+              echo "### Complete log excerpt (last 400 lines)"
+              echo ""
+              echo "Download workflow artifact **apithreshold-gate-full-log** for the **entire** gate output (portable, searchable). Below is the tail of the same file."
+              echo ""
+              echo '```text'
+              tail -n 400 gate_full.log
+              echo '```'
+              echo ""
               echo "---"
-              echo "_Summary from \`.github/workflows/apithreshold-gate.yml\`; full detail stays in the CLI log above._"
+              echo "_Summary from \`.github/workflows/apithreshold-gate.yml\`; expand the **Run APIThreshold gate** step above for full chronological output._"
             } >> "${GITHUB_STEP_SUMMARY}"
             # Short annotation for PR “Files / Checks” UI (GitHub prefixes with Error:)
-            echo "::error title=APIThreshold gate (${APITHRESHOLD_MODE})::${GATE_HEADLINE}. Open the job Summary tab for next steps; expand this step for Gate Blocked / Blocking Issues panels above the DEBUG lines."
+            echo "::error title=APIThreshold gate (${APITHRESHOLD_MODE})::${GATE_HEADLINE}. Open the job Summary for recommendations + log excerpt; download artifact apithreshold-gate-full-log for the complete log."
             exit "$gate_rc"
           fi
+
+      - name: Upload full apithreshold gate log (on failure)
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: apithreshold-gate-full-log
+          path: gate_full.log
+          if-no-files-found: ignore
+          retention-days: 30

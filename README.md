@@ -110,6 +110,12 @@ Common causes:
 
 **Private fork of backend:** set **`BACKEND_REPOSITORY`** to `your-org/your-fork` and use a PAT that can read that fork.
 
+## When the APIThreshold gate fails
+
+1. **Job Summary** (run page → **Summary** tab): headline score vs threshold, checklist, and a **400-line tail** of the gate log (recommendations + Rich panels + DEBUG context).
+2. **Step log**: expand **Run APIThreshold gate** for the full chronological output.
+3. **Artifact** **apithreshold-gate-full-log**: on failed runs the workflow uploads the complete `gate_full.log` (30-day retention). Download it from the run’s **Artifacts** section. Upload uses `continue-on-error: true` because **fork PRs** sometimes cannot upload artifacts with a read-only token; the Summary excerpt still applies.
+
 ## Costs and runtime
 
 `apithreshold gate` runs the full LLM pipeline (parse → assess → generate → score → evaluate). Expect **minutes** per run and **API spend**; use a tiny spec (this repo’s `openapi.yaml`) to keep both smaller.

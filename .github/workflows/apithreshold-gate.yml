@@ -118,28 +118,38 @@ jobs:
           set +e
           apithreshold gate "${APITHRESHOLD_SPEC}" \
             --mode "${APITHRESHOLD_MODE}" \
-            --project-id "${{ github.repository }}"
-          gate_rc=$?
+            --project-id "${{ github.repository }}" 2>&1 | tee gate_full.log
+          gate_rc=${PIPESTATUS[0]}
           set -e
           if [ "$gate_rc" -ne 0 ]; then
+            # Pull human-facing numbers out of Rich/log noise for annotations + summary.
+            GATE_SCORELINE="$(grep -oE 'score [0-9.]+ < threshold [0-9.]+' gate_full.log | tail -1 || true)"
+            GATE_PCTLINE="$(grep -oE 'Score [0-9.]+% below [a-z]+ threshold [0-9.]+%' gate_full.log | tail -1 || true)"
+            GATE_HEADLINE="${GATE_SCORELINE:-(score line not parsed)}${GATE_PCTLINE:+ — }${GATE_PCTLINE}"
             {
               echo "### APIThreshold gate failed"
               echo ""
-              echo "Exit code **${gate_rc}**. Mode: **\`${APITHRESHOLD_MODE}\`** on spec **\`${APITHRESHOLD_SPEC}\`**."
+              echo "**${GATE_HEADLINE}**"
+              echo ""
+              echo "- Exit code: **${gate_rc}** · Mode: **\`${APITHRESHOLD_MODE}\`** · Spec: **\`${APITHRESHOLD_SPEC}\`**"
+              echo ""
+              echo "#### Why the log looks noisy"
+              echo "Lines starting with \`DEBUG\` are diagnostic; the **Gate Blocked** / **Blocking Issues** panels above them are what failed the run."
               echo ""
               echo "#### What to do next"
               echo ""
-              echo "1. Open this job’s log and search for **Gate Blocked**, **Blocking Issues**, and agent lines (**RiskAssessor**, **QualityScorer**, **TestGenerator**, etc.) — that output is the source of truth."
-              echo "2. **Improve the OpenAPI spec**: add or tighten request/response **schemas**, **error responses** (4xx/5xx with bodies), **summaries/descriptions**, **securitySchemes** / **security**, **examples**, **tags**, and pagination where relevant."
-              echo "3. **Reproduce locally** with the same flags as CI (and the same \`OPENAI_API_KEY\`):"
+              echo "1. In this job log, search for **Gate Blocked** and **Blocking Issues** (and agent names: RiskAssessor, QualityScorer, TestGenerator) for spec-specific hints."
+              echo "2. **Improve \`${APITHRESHOLD_SPEC}\`**: schemas for bodies, documented 4xx/5xx error responses, \`securitySchemes\` / \`security\`, summaries, examples, tags, pagination."
+              echo "3. **Reproduce locally:**"
               echo "   \`\`\`bash"
               echo "   apithreshold gate ${APITHRESHOLD_SPEC} --mode ${APITHRESHOLD_MODE} --project-id ${{ github.repository }}"
               echo "   \`\`\`"
-              echo "4. If the failure is **only** about score vs threshold, align with team policy: adjust quality work, or change **\`APITHRESHOLD_MODE\`** / thresholds in the workflow **\`env\`** for branches where blocking is not required yet."
+              echo "4. **Policy:** raise quality / thresholds in product config, or set \`APITHRESHOLD_MODE: learning\` in workflow \`env\` for non-blocking runs."
               echo ""
               echo "---"
-              echo "_Summary added by \`.github/workflows/apithreshold-gate.yml\`; CLI output above remains authoritative._"
+              echo "_Summary from \`.github/workflows/apithreshold-gate.yml\`; full detail stays in the CLI log above._"
             } >> "${GITHUB_STEP_SUMMARY}"
-            echo "::error title=APIThreshold gate blocked::Score below threshold or blocking issues (mode: ${APITHRESHOLD_MODE}). See the **Run APIThreshold gate** log for *Blocking Issues* / *Gate Blocked*, and the **Summary** section on this job for suggested next steps."
+            # Short annotation for PR “Files / Checks” UI (GitHub prefixes with Error:)
+            echo "::error title=APIThreshold gate (${APITHRESHOLD_MODE})::${GATE_HEADLINE}. Open this job’s **Summary** for a short checklist, or expand this step for panels + DEBUG context."
             exit "$gate_rc"
           fi

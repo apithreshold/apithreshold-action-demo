@@ -15,12 +15,14 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # Required when apithreshold/backend is private: PAT with Contents: Read on that repo.
+      BACKEND_GITHUB_TOKEN: ${{ secrets.BACKEND_GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Pass secrets via `secrets:` so the composite action receives them (job `env` alone
-      # is not reliably visible inside composite `run` steps — private clone stayed anonymous).
       - name: APIThreshold gate
         uses: ./.github/actions/apithreshold-gate
         with:
@@ -29,6 +31,3 @@ jobs:
           mode: learning
           # Action default is git (backend). When on PyPI: install-source: pypi
           install-source: git
-        secrets:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          BACKEND_GITHUB_TOKEN: ${{ secrets.BACKEND_GITHUB_TOKEN }}

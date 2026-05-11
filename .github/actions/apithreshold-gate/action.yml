@@ -19,13 +19,6 @@ inputs:
     description: "Git URL for pip install (hatch package at repo root). Override for forks."
     required: false
     default: "https://github.com/apithreshold/backend.git"
-secrets:
-  BACKEND_GITHUB_TOKEN:
-    description: "PAT with Contents: Read on apithreshold/backend when that repo is private."
-    required: false
-  OPENAI_API_KEY:
-    description: "OpenAI API key for apithreshold gate."
-    required: true
 runs:
   using: composite
   steps:
@@ -36,8 +29,6 @@ runs:
 
     - name: Install apithreshold
       shell: bash
-      env:
-        BACKEND_GITHUB_TOKEN: ${{ secrets.BACKEND_GITHUB_TOKEN }}
       run: |
         set -euo pipefail
         python -m pip install --upgrade pip
@@ -58,7 +49,7 @@ runs:
     - name: Run gate
       shell: bash
       env:
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
       run: |
         set -euo pipefail
         apithreshold gate "${{ inputs.spec }}" \

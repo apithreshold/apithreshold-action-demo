@@ -15,7 +15,7 @@ concurrency:
 # pasted — actions/checkout passes the raw value and Git returns 403). Probe with gh first.
 env:
   APITHRESHOLD_SPEC: openapi.yaml
-  APITHRESHOLD_MODE: learning
+  APITHRESHOLD_MODE: enforcing
   INSTALL_SOURCE: git
   BACKEND_REPOSITORY: apithreshold/backend
   BACKEND_REF: main

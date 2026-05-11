@@ -3,6 +3,13 @@ info:
   title: Action demo API
   version: "1.0.0"
 paths:
+  # Intentionally thin endpoint to exercise enforcing gate on this PR.
+  /thin:
+    post:
+      summary: x
+      responses:
+        "200":
+          description: ok
   /hello:
     get:
       summary: Hello world

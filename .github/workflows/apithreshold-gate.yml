@@ -30,13 +30,29 @@ jobs:
       - name: Checkout (this repo)
         uses: actions/checkout@v4
 
+      # GITHUB_TOKEN only has access to *this* repo. It cannot read another private repo
+      # (e.g. apithreshold/backend). If BACKEND_GITHUB_TOKEN is unset, checkout still runs
+      # using github.token — that works for a *public* backend, and fails with 403 for private.
+      - name: Backend clone — credential hint
+        env:
+          HAS_BACKEND_PAT: ${{ secrets.BACKEND_GITHUB_TOKEN != '' }}
+        run: |
+          case "${HAS_BACKEND_PAT}" in
+            true|True)
+              echo "BACKEND_GITHUB_TOKEN is set; checkout will use that PAT for ${BACKEND_REPOSITORY}."
+              ;;
+            *)
+              echo "::warning::BACKEND_GITHUB_TOKEN is not set. Checkout will use GITHUB_TOKEN from ${GITHUB_REPOSITORY}, which cannot access other *private* repositories. If ${BACKEND_REPOSITORY} is private, add repository secret BACKEND_GITHUB_TOKEN (fine-grained: Contents Read on that repo; authorize SSO for the token if your org requires it)."
+              ;;
+          esac
+
       - name: Checkout apithreshold backend
         uses: actions/checkout@v4
         with:
           repository: ${{ env.BACKEND_REPOSITORY }}
           ref: ${{ env.BACKEND_REF }}
           path: _backend_src
-          token: ${{ secrets.BACKEND_GITHUB_TOKEN != '' && secrets.BACKEND_GITHUB_TOKEN || github.token }}
+          token: ${{ secrets.BACKEND_GITHUB_TOKEN || github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5

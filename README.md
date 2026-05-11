@@ -51,9 +51,11 @@ This is a **standalone git repository** you push under the **`apithreshold` org*
 
    **PAT for `BACKEND_GITHUB_TOKEN`:** GitHub → **Settings** (your account or a bot user) → **Developer settings** → **Personal access tokens**. Create a **fine-grained** token with **Contents: Read** on repository **`apithreshold/backend`** only (minimum scope). Paste the token as secret **`BACKEND_GITHUB_TOKEN`** on **`apithreshold-action-demo`**. If your org uses **SAML SSO**, authorize the token for the org.
 
-   If **`backend` is public**, you can omit creating **`BACKEND_GITHUB_TOKEN`**; `${{ secrets.BACKEND_GITHUB_TOKEN }}` is then empty and the install step clones anonymously.
+   If **`apithreshold/backend` is public**, you can omit **`BACKEND_GITHUB_TOKEN`**: the workflow uses `GITHUB_TOKEN` from **this** repo for `actions/checkout`, which is enough to read a **public** dependency. It is **not** enough to read a **private** sibling repo.
 
-   **Pull requests from forks** do not receive repository secrets; those workflow runs will fail the clone step unless **`backend`** is public. Same-repo PRs are fine.
+   **Pull requests from forks** do not receive **this** repository’s Action secrets, so `BACKEND_GITHUB_TOKEN` is empty on those runs. Checkout then uses `GITHUB_TOKEN`, which fails with **403** if **`backend`** is private. Same-repo branches and PRs receive secrets normally.
+
+   **Organization secrets:** if you store the PAT as an org secret, ensure it is **allowed for repository `apithreshold-action-demo`** (org → Settings → Secrets and variables → Actions → repository access).
 
 4. Open **Actions** and confirm the workflow run completes. The default mode is **`learning`** (set via workflow `env` `APITHRESHOLD_MODE`) so the gate collects data and does not block on score (good for a first green run). Set **`APITHRESHOLD_MODE`** to **`enforcing`** in `.github/workflows/apithreshold-gate.yml` when you want CI to fail on threshold.
 
@@ -73,9 +75,27 @@ env:
 
 Use a real tag or branch on **apithreshold/backend**, or a commit SHA.
 
-**403 on checkout:** **`BACKEND_GITHUB_TOKEN`** is missing, invalid, lacks **Contents: Read** on **`apithreshold/backend`**, or is not **SSO-authorized** for the org. Fork PRs do not receive repository secrets unless you use another mechanism.
+### 403 on “Checkout apithreshold backend” (`Write access to repository not granted`)
 
-**Private fork:** set **`BACKEND_REPOSITORY`** to `your-org/your-fork` and use a PAT with access to that fork.
+That message is GitHub’s generic HTTPS denial. Common causes:
+
+1. **`BACKEND_GITHUB_TOKEN` is missing or not visible to this run**  
+   - Not created under **apithreshold-action-demo → Settings → Secrets and variables → Actions**.  
+   - **Fork PR:** upstream secrets are not passed to workflows from forks (see above).  
+   - **Org secret:** not shared with this repository.
+
+2. **Fallback `GITHUB_TOKEN` is being used** (secret empty) and **`apithreshold/backend` is private**  
+   The job’s `GITHUB_TOKEN` is scoped to **`apithreshold-action-demo` only**. It cannot read another private org repo. You must supply a PAT with access to **`apithreshold/backend`**.
+
+3. **PAT is wrong or too narrow**  
+   - **Fine-grained:** resource owner includes the org; under **Repository access**, **`apithreshold/backend`** is selected; permission **Contents: Read** (and usually **Metadata: Read**).  
+   - **SAML SSO:** open **Fine-grained token → Configure SSO → Authorize** for the **`apithreshold`** org.  
+   - If fine-grained still misbehaves, try a **classic PAT** with **`repo`** scope limited to that repository (or org policy permitting).
+
+4. **Wrong ref**  
+   If **`BACKEND_REF`** does not exist on the remote you get a different error, but confirm the default branch of **`backend`** (e.g. `main`) matches workflow `env` **`BACKEND_REF`**.
+
+**Private fork of backend:** set **`BACKEND_REPOSITORY`** to `your-org/your-fork` and use a PAT that can read that fork.
 
 ## Costs and runtime
 

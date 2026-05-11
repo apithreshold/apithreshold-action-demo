@@ -42,10 +42,16 @@ This is a **standalone git repository** you push under the **`apithreshold` org*
 
    To confirm: `git remote -v`.
 
-3. In GitHub: **Settings → Secrets and variables → Actions → New repository secret**
+3. In GitHub: **Settings → Secrets and variables → Actions → New repository secrets**
 
-   - Name: `OPENAI_API_KEY`
-   - Value: your OpenAI API key (or a key for whatever provider you configure via `APITHRESHOLD_LLM_PROVIDER`).
+   | Name | When |
+   |------|------|
+   | **`OPENAI_API_KEY`** | Always — used by `apithreshold gate` for the LLM. |
+   | **`BACKEND_GITHUB_TOKEN`** | **If `apithreshold/backend` is private** (default for many orgs). CI cannot `git clone` a private repo without credentials. |
+
+   **PAT for `BACKEND_GITHUB_TOKEN`:** GitHub → **Settings** (your account or a bot user) → **Developer settings** → **Personal access tokens**. Create a **fine-grained** token with **Contents: Read** on repository **`apithreshold/backend`** only (minimum scope). Paste the token as secret **`BACKEND_GITHUB_TOKEN`** on **`apithreshold-action-demo`**.
+
+   If **`backend` is public**, you can omit **`BACKEND_GITHUB_TOKEN`**; the workflow still defines it, and an empty value skips authenticated clone.
 
 4. Open **Actions** and confirm the workflow run completes. The default mode is **`learning`** so the gate collects data and does not block on score (good for a first green run). Switch to **`enforcing`** in `.github/workflows/apithreshold-gate.yml` when you want CI to fail on threshold.
 

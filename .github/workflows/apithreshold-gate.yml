@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 30
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # Required when apithreshold/backend is private: PAT with Contents: Read on that repo.
+      BACKEND_GITHUB_TOKEN: ${{ secrets.BACKEND_GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

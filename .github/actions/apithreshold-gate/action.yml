@@ -35,7 +35,15 @@ runs:
         if [ "${{ inputs.install-source }}" = "pypi" ]; then
           pip install apithreshold
         else
-          pip install "git+${{ inputs.backend-repo }}"
+          REPO="${{ inputs.backend-repo }}"
+          if [ -n "${BACKEND_GITHUB_TOKEN:-}" ]; then
+            case "$REPO" in
+              https://github.com/*)
+                REPO="https://x-access-token:${BACKEND_GITHUB_TOKEN}@github.com/${REPO#https://github.com/}"
+                ;;
+            esac
+          fi
+          pip install "git+${REPO}"
         fi
 
     - name: Run gate

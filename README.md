@@ -75,6 +75,14 @@ env:
 
 Use a real tag or branch on **apithreshold/backend**, or a commit SHA.
 
+### REST probe returns **404 Not Found** for `GET /repos/apithreshold/backend`
+
+With a **PAT**, GitHub often returns **404** (not 403) when the token **cannot read** a **private** repository — it hides that the repo exists. So **404 = “this identity has no access to that slug”**, not “the URL is wrong” (though a wrong slug also 404s).
+
+Fix the **PAT → repository** binding: fine-grained token must **explicitly list** `apithreshold/backend`, **Contents: Read** + **Metadata: Read**, and **SSO authorize** the token for the `apithreshold` org if SAML is on. Confirm the Actions secret **`BACKEND_GITHUB_TOKEN`** is exactly that token (org secret must be **allowed for `apithreshold-action-demo`**).
+
+The workflow prints an **anonymous** `GET /repos/...` first: **200** = repo metadata is public; **404** = private or wrong path (anonymous never sees private).
+
 ### 403 when cloning `apithreshold/backend` (`Write access to repository not granted`)
 
 That message is GitHub’s generic HTTPS denial. The workflow **fails fast** if a private backend is assumed and **`BACKEND_GITHUB_TOKEN`** is missing. Otherwise it runs a **REST probe** (`GET /repos/apithreshold/backend`) with the same token as `git clone`; if that fails, the problem is **token access**, not the clone tool.

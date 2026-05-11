@@ -64,10 +64,20 @@ jobs:
             echo "::error::Token is empty after trim. Check BACKEND_GITHUB_TOKEN / BACKEND_IS_PUBLIC."
             exit 1
           fi
-          echo "REST probe: GET /repos/${BACKEND_REPOSITORY} (same credential as clone)…"
+          echo "Anonymous probe: GET /repos/${BACKEND_REPOSITORY} (no auth — sees public repos only)…"
+          ANON_HTTP=$(curl -sS -o /tmp/anon_repo.json -w "%{http_code}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${BACKEND_REPOSITORY}" || echo "000")
+          echo "Anonymous HTTP status: ${ANON_HTTP}"
+          case "${ANON_HTTP}" in
+            200) echo "Repo metadata is public (anyone can see it exists). If the PAT probe below fails with 404, the token is wrong user, corrupted, or not the PAT you think (wrong secret name / wrong org secret mapping)." ;;
+            404) echo "Anonymous 404: repo is private, renamed/moved, or slug is wrong — OR GitHub hides a private repo. Your PAT must explicitly include ${BACKEND_REPOSITORY} (fine-grained: Repository access + Contents:Read + Metadata:Read) and SAML SSO authorized for org." ;;
+            *)   echo "Unexpected anonymous status ${ANON_HTTP}." ;;
+          esac
+          echo "REST probe (authenticated): GET /repos/${BACKEND_REPOSITORY}…"
           if ! gh api "repos/${BACKEND_REPOSITORY}" --header "accept: application/vnd.github+json" \
               --jq '{full_name, private, visibility}' 2>gh_api_err.txt; then
-            echo "::error::GitHub API rejected this token for ${BACKEND_REPOSITORY} (not a checkout bug). Typical fixes: (1) fine-grained PAT includes this repo + Contents:Read (+Metadata:Read), (2) SAML SSO → Authorize token for org apithreshold, (3) org secret is allowed for this repository and the secret name is exactly BACKEND_GITHUB_TOKEN, (4) token not expired. gh stderr:"
+            echo "::error::Authenticated GET /repos/${BACKEND_REPOSITORY} failed (see gh stderr below). HTTP 404 here almost always means: the token identity cannot read that repo (GitHub often uses 404 instead of 403 for private repos). Fix: (1) Fine-grained PAT → Repository access must list **${BACKEND_REPOSITORY}** + **Contents: Read** + **Metadata: Read**. (2) SAML: **Authorize** the PAT for org **${BACKEND_REPOSITORY%%/*}**. (3) Confirm **BACKEND_GITHUB_TOKEN** secret value is that PAT (org secret allowed for this repo, exact name). (4) Confirm slug matches GitHub (owner/casing). gh stderr:"
             cat gh_api_err.txt
             exit 1
           fi

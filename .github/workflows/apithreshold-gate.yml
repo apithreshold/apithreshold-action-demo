@@ -122,8 +122,29 @@ jobs:
             --project-id "${{ github.repository }}" 2>&1 | tee gate_full.log
           gate_rc=${PIPESTATUS[0]}
           set -e
+          # Verbatim capture: same bytes as the Actions step log (tee). ~1MB cap for in-Summary embed (GitHub limit).
+          LOG_BYTES="$(wc -c < gate_full.log | awk '{print $1}')"
+          SUMMARY_MAX=950000
+          append_verbatim_log() {
+            echo "### Verbatim gate output (same as workflow log + artifact)"
+            echo ""
+            echo "File size: **${LOG_BYTES}** bytes. Artifact **apithreshold-gate-full-log** always contains the full file. You can also download the whole job log from the run (**⋯** → **Download log archive**)."
+            echo ""
+            if [ "${LOG_BYTES}" -le "${SUMMARY_MAX}" ] 2>/dev/null; then
+              echo "Full log embedded below (under Summary size limit)."
+              echo ""
+              echo '```text'
+              cat gate_full.log
+              echo '```'
+            else
+              echo "Log exceeds Summary safe size; **artifact** is the complete verbatim capture. Last **800** lines below for quick scan."
+              echo ""
+              echo '```text'
+              tail -n 800 gate_full.log
+              echo '```'
+            fi
+          }
           if [ "$gate_rc" -ne 0 ]; then
-            # Pull human-facing numbers out of Rich/log noise for annotations + summary.
             GATE_SCORELINE="$(grep -oE 'score [0-9.]+ < threshold [0-9.]+' gate_full.log | tail -1 || true)"
             GATE_PCTLINE="$(grep -oE 'Score [0-9.]+% below [a-z]+ threshold [0-9.]+%' gate_full.log | tail -1 || true)"
             GATE_HEADLINE="${GATE_SCORELINE:-(score line not parsed)}${GATE_PCTLINE:+ — }${GATE_PCTLINE}"
@@ -147,24 +168,28 @@ jobs:
               echo "   \`\`\`"
               echo "4. **Policy:** raise quality / thresholds in product config, or set \`APITHRESHOLD_MODE: learning\` in workflow \`env\` for non-blocking runs."
               echo ""
-              echo "### Complete log excerpt (last 400 lines)"
-              echo ""
-              echo "Download workflow artifact **apithreshold-gate-full-log** for the **entire** gate output (portable, searchable). Below is the tail of the same file."
-              echo ""
-              echo '```text'
-              tail -n 400 gate_full.log
-              echo '```'
+              append_verbatim_log
               echo ""
               echo "---"
-              echo "_Summary from \`.github/workflows/apithreshold-gate.yml\`; expand the **Run APIThreshold gate** step above for full chronological output._"
+              echo "_Summary from \`.github/workflows/apithreshold-gate.yml\`._"
             } >> "${GITHUB_STEP_SUMMARY}"
-            # Short annotation for PR “Files / Checks” UI (GitHub prefixes with Error:)
-            echo "::error title=APIThreshold gate (${APITHRESHOLD_MODE})::${GATE_HEADLINE}. Open the job Summary for recommendations + log excerpt; download artifact apithreshold-gate-full-log for the complete log."
+            echo "::error title=APIThreshold gate (${APITHRESHOLD_MODE})::${GATE_HEADLINE}. Summary embeds full log if under size cap; otherwise use artifact + Download log archive. Expand **Run APIThreshold gate** for live step log."
             exit "$gate_rc"
           fi
+          {
+            echo "### APIThreshold gate passed"
+            echo ""
+            echo "Mode **\`${APITHRESHOLD_MODE}\`** on **\`${APITHRESHOLD_SPEC}\`**."
+            echo ""
+            echo "Complete **${LOG_BYTES}**-byte gate output (same bytes as the step log):"
+            echo ""
+            echo "1. Artifact **apithreshold-gate-full-log** (this run, verbatim \`gate_full.log\`)."
+            echo "2. Expand **Run APIThreshold gate** above for the live log stream."
+            echo "3. Run **⋯** (top right of the workflow run) → **Download log archive** for all steps as files."
+          } >> "${GITHUB_STEP_SUMMARY}"
 
-      - name: Upload full apithreshold gate log (on failure)
-        if: failure()
+      - name: Upload full apithreshold gate log (verbatim)
+        if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:

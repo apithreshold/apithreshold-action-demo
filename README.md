@@ -110,11 +110,20 @@ Common causes:
 
 **Private fork of backend:** set **`BACKEND_REPOSITORY`** to `your-org/your-fork` and use a PAT that can read that fork.
 
+## Capturing the full gate output (workflow logs)
+
+Every run uploads **`apithreshold-gate-full-log`** (`gate_full.log`) — the **verbatim** stdout/stderr from `apithreshold gate` (same bytes as the **Run APIThreshold gate** step in the Actions UI). Retention: **30 days**. Upload uses `continue-on-error: true` so **fork PRs** with a read-only token do not fail the job if artifact upload is blocked.
+
+**Ways to get *all* details**
+
+1. **Expand the step** **Run APIThreshold gate** in the job log (full stream, as emitted).
+2. **Artifacts** on the workflow run → download **apithreshold-gate-full-log**.
+3. Run page **⋯** (top right) → **Download log archive** — entire job as files (GitHub-native).
+4. **Summary** tab: on **failure**, the workflow embeds the **entire** `gate_full.log` in the Summary when it is under GitHub’s size limit (~950KB); if larger, the Summary includes a long tail and points you to the artifact for the complete file.
+
 ## When the APIThreshold gate fails
 
-1. **Job Summary** (run page → **Summary** tab): headline score vs threshold, checklist, and a **400-line tail** of the gate log (recommendations + Rich panels + DEBUG context).
-2. **Step log**: expand **Run APIThreshold gate** for the full chronological output.
-3. **Artifact** **apithreshold-gate-full-log**: on failed runs the workflow uploads the complete `gate_full.log` (30-day retention). Download it from the run’s **Artifacts** section. Upload uses `continue-on-error: true` because **fork PRs** sometimes cannot upload artifacts with a read-only token; the Summary excerpt still applies.
+On failure, the **Summary** also includes score headline, remediation checklist, then the verbatim log section above.
 
 ## Costs and runtime
 

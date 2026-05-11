@@ -11,22 +11,32 @@ concurrency:
   group: apithreshold-gate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Install + gate run as normal job steps so secrets map straight to `env` (reliable for
-# private `git+https` installs). Local composite actions cannot use `secrets:` on the step,
-# and passing PATs through composite `inputs` → `env` is unreliable for pip/git.
+# Clone backend with actions/checkout (correct auth for private repos), then pip install the
+# local tree. Avoid `pip install git+https://…` with embedded PATs — unreliable in CI.
 env:
   APITHRESHOLD_SPEC: openapi.yaml
   APITHRESHOLD_MODE: learning
   INSTALL_SOURCE: git
-  BACKEND_REPO: https://github.com/apithreshold/backend.git
+  BACKEND_REPOSITORY: apithreshold/backend
+  BACKEND_REF: main
 
 jobs:
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
-      - name: Checkout
+      - name: Checkout (this repo)
         uses: actions/checkout@v4
+
+      - name: Checkout apithreshold backend
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BACKEND_REPOSITORY }}
+          ref: ${{ env.BACKEND_REF }}
+          path: _backend_src
+          token: ${{ secrets.BACKEND_GITHUB_TOKEN != '' && secrets.BACKEND_GITHUB_TOKEN || github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -35,23 +45,13 @@ jobs:
 
       - name: Install apithreshold
         shell: bash
-        env:
-          BACKEND_GITHUB_TOKEN: ${{ secrets.BACKEND_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
           if [ "${INSTALL_SOURCE}" = "pypi" ]; then
             pip install apithreshold
           else
-            REPO="${BACKEND_REPO}"
-            if [ -n "${BACKEND_GITHUB_TOKEN:-}" ]; then
-              case "$REPO" in
-                https://github.com/*)
-                  REPO="https://x-access-token:${BACKEND_GITHUB_TOKEN}@github.com/${REPO#https://github.com/}"
-                  ;;
-              esac
-            fi
-            pip install "git+${REPO}"
+            pip install "./_backend_src"
           fi
 
       - name: Run APIThreshold gate

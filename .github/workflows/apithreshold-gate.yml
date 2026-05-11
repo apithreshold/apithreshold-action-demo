@@ -150,6 +150,6 @@ jobs:
               echo "_Summary from \`.github/workflows/apithreshold-gate.yml\`; full detail stays in the CLI log above._"
             } >> "${GITHUB_STEP_SUMMARY}"
             # Short annotation for PR “Files / Checks” UI (GitHub prefixes with Error:)
-            echo "::error title=APIThreshold gate (${APITHRESHOLD_MODE})::${GATE_HEADLINE}. Open this job’s **Summary** for a short checklist, or expand this step for panels + DEBUG context."
+            echo "::error title=APIThreshold gate (${APITHRESHOLD_MODE})::${GATE_HEADLINE}. Open the job Summary tab for next steps; expand this step for Gate Blocked / Blocking Issues panels above the DEBUG lines."
             exit "$gate_rc"
           fi

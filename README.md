@@ -2,9 +2,11 @@
 
 Minimal OpenAPI spec plus a **local composite action** and workflow to prove `apithreshold gate` in CI.
 
+Canonical home once published: **`apithreshold/apithreshold-action-demo`** on GitHub ([github.com/apithreshold/apithreshold-action-demo](https://github.com/apithreshold/apithreshold-action-demo)).
+
 ## Why this lives outside `backend/`
 
-This is a **standalone git repository** you push to GitHub. It is not part of the `backend`, `guardrails`, or `portal` repos.
+This is a **standalone git repository** you push under the **`apithreshold` org**. It is not part of the `backend`, `guardrails`, or `portal` repos.
 
 ## Quick start
 
@@ -15,16 +17,21 @@ This is a **standalone git repository** you push to GitHub. It is not part of th
    cd ~/apithreshold-action-demo
    ```
 
-2. Initialize and push to a new **public** GitHub repository (name is arbitrary).
+2. Initialize and push to a new **public** repo under the **`apithreshold` GitHub org** (repo name: `apithreshold-action-demo`).
 
    ```bash
    git init
    git add .
    git commit -m "Proof: APIThreshold gate in GitHub Actions"
-   gh repo create apithreshold-action-demo --public --source=. --remote=origin --push
+   gh repo create apithreshold/apithreshold-action-demo --public --source=. --remote=origin --push
    ```
 
-   Or create the repo in the UI, then `git remote add origin …` and `git push -u origin main`.
+   Requires `gh` auth with permission to create repos in **apithreshold**. Or create **apithreshold/apithreshold-action-demo** in the org UI, then:
+
+   ```bash
+   git remote add origin https://github.com/apithreshold/apithreshold-action-demo.git
+   git push -u origin main
+   ```
 
 3. In GitHub: **Settings → Secrets and variables → Actions → New repository secret**
 

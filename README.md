@@ -114,16 +114,18 @@ Common causes:
 
 Every run uploads **`apithreshold-gate-full-log`** (`gate_full.log`) — the **verbatim** stdout/stderr from `apithreshold gate` (same bytes as the **Run APIThreshold gate** step in the Actions UI). Retention: **30 days**. Upload uses `continue-on-error: true` so **fork PRs** with a read-only token do not fail the job if artifact upload is blocked.
 
+On **failure** only, a follow-up step runs **`apithreshold explain`** (from the last gate result in `~/.apithreshold/state/...`) and **`apithreshold report`** when a quality report is present. That output is **`gate_recommendations.log`** in artifact **`apithreshold-gate-recommendations`** and is partially embedded in the job **Summary** under **LLM recommendations (after failure)**. The gate step itself stays short (Rich panels + DEBUG); the explain/report step is what adds prioritized fix suggestions.
+
 **Ways to get *all* details**
 
 1. **Expand the step** **Run APIThreshold gate** in the job log (full stream, as emitted).
-2. **Artifacts** on the workflow run → download **apithreshold-gate-full-log**.
+2. **Artifacts** on the workflow run → download **apithreshold-gate-full-log**; if the gate failed, also **apithreshold-gate-recommendations** for explain/report text.
 3. Run page **⋯** (top right) → **Download log archive** — entire job as files (GitHub-native).
 4. **Summary** tab: on **failure**, the workflow embeds the **entire** `gate_full.log` in the Summary when it is under GitHub’s size limit (~950KB); if larger, the Summary includes a long tail and points you to the artifact for the complete file.
 
 ## When the APIThreshold gate fails
 
-On failure, the **Summary** also includes score headline, remediation checklist, then the verbatim log section above.
+On failure, the **Summary** includes score headline, remediation checklist, verbatim `gate_full.log`, then (from a separate step) **LLM recommendations** when `OPENAI_API_KEY` is available and state could be read.
 
 ## Costs and runtime
 

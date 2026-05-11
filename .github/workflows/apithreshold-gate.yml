@@ -160,13 +160,14 @@ jobs:
               echo ""
               echo "#### What to do next"
               echo ""
-              echo "1. In this job log, search for **Gate Blocked** and **Blocking Issues** (and agent names: RiskAssessor, QualityScorer, TestGenerator) for spec-specific hints."
-              echo "2. **Improve \`${APITHRESHOLD_SPEC}\`**: schemas for bodies, documented 4xx/5xx error responses, \`securitySchemes\` / \`security\`, summaries, examples, tags, pagination."
-              echo "3. **Reproduce locally:**"
+              echo "1. **LLM recommendations:** open **Gate failure recommendations (explain + report)** in this job, download artifact **apithreshold-gate-recommendations**, and check Summary section **LLM recommendations (after failure)**."
+              echo "2. In this job log, search for **Gate Blocked** and **Blocking Issues** (and agent names: RiskAssessor, QualityScorer, TestGenerator) for spec-specific hints."
+              echo "3. **Improve \`${APITHRESHOLD_SPEC}\`**: schemas for bodies, documented 4xx/5xx error responses, \`securitySchemes\` / \`security\`, summaries, examples, tags, pagination."
+              echo "4. **Reproduce locally:**"
               echo "   \`\`\`bash"
               echo "   apithreshold gate ${APITHRESHOLD_SPEC} --mode ${APITHRESHOLD_MODE} --project-id ${{ github.repository }}"
               echo "   \`\`\`"
-              echo "4. **Policy:** raise quality / thresholds in product config, or set \`APITHRESHOLD_MODE: learning\` in workflow \`env\` for non-blocking runs."
+              echo "5. **Policy:** raise quality / thresholds in product config, or set \`APITHRESHOLD_MODE: learning\` in workflow \`env\` for non-blocking runs."
               echo ""
               append_verbatim_log
               echo ""
@@ -188,6 +189,95 @@ jobs:
             echo "3. Run **⋯** (top right of the workflow run) → **Download log archive** for all steps as files."
           } >> "${GITHUB_STEP_SUMMARY}"
 
+      # Gate stdout is Rich panels + DEBUG only; full remediation needs follow-up LLM calls.
+      - name: Gate failure recommendations (explain + report)
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          APITHRESHOLD_SPEC: ${{ env.APITHRESHOLD_SPEC }}
+        run: |
+          set -euo pipefail
+          STATE="${HOME}/.apithreshold/state/${GITHUB_REPOSITORY}/gate_state.json"
+          if [[ ! -f "${STATE}" ]]; then
+            echo "::warning::No gate state at ${STATE}; skipping explain/report."
+            exit 0
+          fi
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import sys
+
+          repo = os.environ.get("GITHUB_REPOSITORY", "default")
+          state_path = pathlib.Path.home() / ".apithreshold" / "state" / repo / "gate_state.json"
+          if not state_path.is_file():
+              print("Missing state", state_path, file=sys.stderr)
+              sys.exit(2)
+          data = json.loads(state_path.read_text())
+          hist = data.get("history") or []
+          if not hist:
+              print("Empty history; skipping explain/report", file=sys.stderr)
+              sys.exit(2)
+          last = hist[-1]
+          gate_result = {
+              "passed": last["passed"],
+              "mode": last["mode"],
+              "score": last["score"],
+              "threshold": last["threshold"],
+              "blocking_issues": last.get("blocking_issues") or [],
+              "exit_code": last["exit_code"],
+              "spec_hash": last["spec_hash"],
+          }
+          pathlib.Path("gate_result.json").write_text(json.dumps(gate_result))
+          lr = data.get("latest_report")
+          if lr is not None:
+              pathlib.Path("quality_report.json").write_text(json.dumps(lr))
+          PY
+          py_rc=$?
+          if [[ "${py_rc}" -ne 0 ]] || [[ ! -f gate_result.json ]]; then
+            echo "::warning::Could not derive gate_result.json (state missing or empty history); skipping explain/report."
+            exit 0
+          fi
+
+          set +e
+          apithreshold explain gate_result.json 2>&1 | tee gate_explain.log
+          set -e
+          if [[ -f quality_report.json ]]; then
+            set +e
+            apithreshold report "${APITHRESHOLD_SPEC}" quality_report.json 2>&1 | tee gate_report.log
+            set -e
+          else
+            echo "(no quality_report.json in state — report skipped)" | tee gate_report.log
+          fi
+
+          {
+            echo ""
+            echo "### LLM recommendations (after failure)"
+            echo ""
+            echo "From \`apithreshold explain\` plus \`apithreshold report\` when the latest quality report was available. Artifact **apithreshold-gate-recommendations** has the full text."
+            echo ""
+            echo '```text'
+          } >> "${GITHUB_STEP_SUMMARY}"
+          set +o pipefail
+          {
+            cat gate_explain.log
+            echo ""
+            echo "=== apithreshold report ==="
+            cat gate_report.log
+          } | head -c 480000 >> "${GITHUB_STEP_SUMMARY}" || true
+          set -o pipefail
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+
+          {
+            echo "=== apithreshold explain gate_result.json ==="
+            cat gate_explain.log
+            echo ""
+            echo "=== apithreshold report ==="
+            cat gate_report.log
+          } > gate_recommendations.log
+
       - name: Upload full apithreshold gate log (verbatim)
         if: always()
         continue-on-error: true
@@ -195,5 +285,15 @@ jobs:
         with:
           name: apithreshold-gate-full-log
           path: gate_full.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload gate recommendation logs
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: apithreshold-gate-recommendations
+          path: gate_recommendations.log
           if-no-files-found: ignore
           retention-days: 30

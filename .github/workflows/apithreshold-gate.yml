@@ -112,7 +112,32 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          set +e
           apithreshold gate "${APITHRESHOLD_SPEC}" \
             --mode "${APITHRESHOLD_MODE}" \
             --project-id "${{ github.repository }}"
+          gate_rc=$?
+          set -e
+          if [ "$gate_rc" -ne 0 ]; then
+            {
+              echo "### APIThreshold gate failed"
+              echo ""
+              echo "Exit code **${gate_rc}**. Mode: **\`${APITHRESHOLD_MODE}\`** on spec **\`${APITHRESHOLD_SPEC}\`**."
+              echo ""
+              echo "#### What to do next"
+              echo ""
+              echo "1. Open this job’s log and search for **Gate Blocked**, **Blocking Issues**, and agent lines (**RiskAssessor**, **QualityScorer**, **TestGenerator**, etc.) — that output is the source of truth."
+              echo "2. **Improve the OpenAPI spec**: add or tighten request/response **schemas**, **error responses** (4xx/5xx with bodies), **summaries/descriptions**, **securitySchemes** / **security**, **examples**, **tags**, and pagination where relevant."
+              echo "3. **Reproduce locally** with the same flags as CI (and the same \`OPENAI_API_KEY\`):"
+              echo "   \`\`\`bash"
+              echo "   apithreshold gate ${APITHRESHOLD_SPEC} --mode ${APITHRESHOLD_MODE} --project-id ${{ github.repository }}"
+              echo "   \`\`\`"
+              echo "4. If the failure is **only** about score vs threshold, align with team policy: adjust quality work, or change **\`APITHRESHOLD_MODE\`** / thresholds in the workflow **\`env\`** for branches where blocking is not required yet."
+              echo ""
+              echo "---"
+              echo "_Summary added by \`.github/workflows/apithreshold-gate.yml\`; CLI output above remains authoritative._"
+            } >> "${GITHUB_STEP_SUMMARY}"
+            echo "::error title=APIThreshold gate blocked::Score below threshold or blocking issues (mode: ${APITHRESHOLD_MODE}). See the **Run APIThreshold gate** log for *Blocking Issues* / *Gate Blocked*, and the **Summary** section on this job for suggested next steps."
+            exit "$gate_rc"
+          fi

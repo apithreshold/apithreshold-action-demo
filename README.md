@@ -33,6 +33,15 @@ This is a **standalone git repository** you push under the **`apithreshold` org*
    git push -u origin main
    ```
 
+   **If `gh` prints `Unable to add remote "origin"`:** the repo was created on GitHub, but this clone already has an `origin` (for example from an earlier `git init` in the template). Point it at the new repo and push:
+
+   ```bash
+   git remote set-url origin https://github.com/apithreshold/apithreshold-action-demo.git
+   git push -u origin main
+   ```
+
+   To confirm: `git remote -v`.
+
 3. In GitHub: **Settings → Secrets and variables → Actions → New repository secret**
 
    - Name: `OPENAI_API_KEY`

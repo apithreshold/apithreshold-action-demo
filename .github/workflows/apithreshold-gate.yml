@@ -11,8 +11,8 @@ concurrency:
   group: apithreshold-gate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Clone backend with actions/checkout (correct auth for private repos), then pip install the
-# local tree. Avoid `pip install git+https://…` with embedded PATs — unreliable in CI.
+# Clone backend with git + trimmed token (org secrets often include a trailing newline when
+# pasted — actions/checkout passes the raw value and Git returns 403). Probe with gh first.
 env:
   APITHRESHOLD_SPEC: openapi.yaml
   APITHRESHOLD_MODE: learning
@@ -30,27 +30,56 @@ jobs:
       - name: Checkout (this repo)
         uses: actions/checkout@v4
 
-      # GITHUB_TOKEN is scoped to *this* repo only — it cannot read another private repo.
-      # Do not fall back to github.token when backend is private (that only yields a cryptic 403).
-      # If apithreshold/backend is public, set Actions variable BACKEND_IS_PUBLIC=true (see README).
+      - name: Backend auth — diagnose
+        run: |
+          set -euo pipefail
+          echo "BACKEND_REPOSITORY=${BACKEND_REPOSITORY} BACKEND_REF=${BACKEND_REF}"
+          echo "BACKEND_IS_PUBLIC (repo Actions variable, must be exactly 'true' to use only GITHUB_TOKEN): '${{ vars.BACKEND_IS_PUBLIC }}'"
+          case "${{ vars.BACKEND_IS_PUBLIC }}" in
+            true) echo "Mode: treat backend as public → clone uses github.token from this repo." ;;
+            *)    echo "Mode: treat backend as private → clone uses BACKEND_GITHUB_TOKEN (org or repo secret, exact name)." ;;
+          esac
+
       - name: Backend clone — require PAT unless backend is public
         if: ${{ vars.BACKEND_IS_PUBLIC != 'true' }}
         env:
           PAT: ${{ secrets.BACKEND_GITHUB_TOKEN }}
         run: |
           if [ -z "${PAT}" ]; then
-            echo "::error::BACKEND_GITHUB_TOKEN is missing or unavailable (common on PRs from forks). The job GITHUB_TOKEN for this repository cannot clone a private ${BACKEND_REPOSITORY}. Fix: add repository secret BACKEND_GITHUB_TOKEN (fine-grained PAT: Contents Read on that repo; SSO-authorized for the org if required). If ${BACKEND_REPOSITORY} is public, set repository Actions variable BACKEND_IS_PUBLIC to true. See README."
+            echo "::error::BACKEND_GITHUB_TOKEN is missing or unavailable (common on PRs from forks). The job GITHUB_TOKEN for this repository cannot clone a private ${BACKEND_REPOSITORY}. Fix: add repository secret BACKEND_GITHUB_TOKEN (fine-grained PAT: Contents Read on that repo; SSO-authorized for the org if required). If ${BACKEND_REPOSITORY} is public, set repository Actions variable BACKEND_IS_PUBLIC to the exact string true. See README."
             exit 1
           fi
-          echo "BACKEND_GITHUB_TOKEN is set. If checkout still returns 403, the PAT is rejected (wrong repo access, expired token, or missing SSO authorization)."
+          echo "BACKEND_GITHUB_TOKEN is non-empty (next step trims CR/LF)."
 
-      - name: Checkout apithreshold backend
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.BACKEND_REPOSITORY }}
-          ref: ${{ env.BACKEND_REF }}
-          path: _backend_src
-          token: ${{ vars.BACKEND_IS_PUBLIC == 'true' && github.token || secrets.BACKEND_GITHUB_TOKEN }}
+      - name: Clone apithreshold backend (trim PAT; probe then shallow clone)
+        shell: bash
+        env:
+          RAW_TOKEN: ${{ vars.BACKEND_IS_PUBLIC == 'true' && github.token || secrets.BACKEND_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Org/UI secrets often include a trailing newline — breaks HTTPS git auth (403).
+          GH_TOKEN="$(printf '%s' "${RAW_TOKEN}" | tr -d '\n\r')"
+          export GH_TOKEN
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::Token is empty after trim. Check BACKEND_GITHUB_TOKEN / BACKEND_IS_PUBLIC."
+            exit 1
+          fi
+          echo "REST probe: GET /repos/${BACKEND_REPOSITORY} (same credential as clone)…"
+          if ! gh api "repos/${BACKEND_REPOSITORY}" --header "accept: application/vnd.github+json" \
+              --jq '{full_name, private, visibility}' 2>gh_api_err.txt; then
+            echo "::error::GitHub API rejected this token for ${BACKEND_REPOSITORY} (not a checkout bug). Typical fixes: (1) fine-grained PAT includes this repo + Contents:Read (+Metadata:Read), (2) SAML SSO → Authorize token for org apithreshold, (3) org secret is allowed for this repository and the secret name is exactly BACKEND_GITHUB_TOKEN, (4) token not expired. gh stderr:"
+            cat gh_api_err.txt
+            exit 1
+          fi
+          rm -rf _backend_src
+          echo "Shallow clone ${BACKEND_REPOSITORY} @ ${BACKEND_REF}…"
+          if ! git clone --depth 1 --branch "${BACKEND_REF}" \
+              "https://x-access-token:${GH_TOKEN}@github.com/${BACKEND_REPOSITORY}.git" \
+              _backend_src 2>git_clone_err.txt; then
+            echo "::error::git clone failed. If REST probe passed but clone failed, try a different BACKEND_REF (default branch). git stderr:"
+            cat git_clone_err.txt
+            exit 1
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5

@@ -75,9 +75,9 @@ env:
 
 Use a real tag or branch on **apithreshold/backend**, or a commit SHA.
 
-### 403 on “Checkout apithreshold backend” (`Write access to repository not granted`)
+### 403 when cloning `apithreshold/backend` (`Write access to repository not granted`)
 
-That message is GitHub’s generic HTTPS denial. The workflow now **fails fast** if a private backend is assumed and **`BACKEND_GITHUB_TOKEN`** is missing; if you still see **403 on checkout**, the token was passed but **rejected** by GitHub.
+That message is GitHub’s generic HTTPS denial. The workflow **fails fast** if a private backend is assumed and **`BACKEND_GITHUB_TOKEN`** is missing. Otherwise it runs a **REST probe** (`GET /repos/apithreshold/backend`) with the same token as `git clone`; if that fails, the problem is **token access**, not the clone tool.
 
 Common causes:
 
@@ -94,7 +94,10 @@ Common causes:
    - **SAML SSO:** open **Fine-grained token → Configure SSO → Authorize** for the **`apithreshold`** org.  
    - If fine-grained still misbehaves, try a **classic PAT** with **`repo`** scope limited to that repository (or org policy permitting).
 
-4. **Wrong ref**  
+4. **Trailing newline in the secret** (common when pasting into GitHub)  
+   The workflow trims CR/LF from the token before `git clone`. If you still use an older workflow without that trim, re-save the secret or upgrade to the latest workflow on `main`.
+
+5. **Wrong ref**  
    If **`BACKEND_REF`** does not exist on the remote you get a different error, but confirm the default branch of **`backend`** (e.g. `main`) matches workflow `env` **`BACKEND_REF`**.
 
 **Private fork of backend:** set **`BACKEND_REPOSITORY`** to `your-org/your-fork` and use a PAT that can read that fork.

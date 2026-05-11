@@ -15,7 +15,10 @@ concurrency:
 # pasted — actions/checkout passes the raw value and Git returns 403). Probe with gh first.
 env:
   APITHRESHOLD_SPEC: openapi.yaml
-  APITHRESHOLD_MODE: learning
+  # learning = exit 0 even when score < threshold (UI may still say "BLOCKED" — data only).
+  # enforcing = exit non-zero when score < threshold (CI fails). Use enforcing on PRs so
+  # merge checks actually block; pushes to main stay learning unless you tighten below.
+  APITHRESHOLD_MODE: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'enforcing' || 'learning' }}
   INSTALL_SOURCE: git
   BACKEND_REPOSITORY: apithreshold/backend
   BACKEND_REF: main

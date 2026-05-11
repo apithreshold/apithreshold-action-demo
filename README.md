@@ -51,7 +51,9 @@ This is a **standalone git repository** you push under the **`apithreshold` org*
 
    **PAT for `BACKEND_GITHUB_TOKEN`:** GitHub → **Settings** (your account or a bot user) → **Developer settings** → **Personal access tokens**. Create a **fine-grained** token with **Contents: Read** on repository **`apithreshold/backend`** only (minimum scope). Paste the token as secret **`BACKEND_GITHUB_TOKEN`** on **`apithreshold-action-demo`**.
 
-   If **`backend` is public**, you can omit **`BACKEND_GITHUB_TOKEN`**; the workflow still defines it, and an empty value skips authenticated clone.
+   If **`backend` is public**, you can omit **`BACKEND_GITHUB_TOKEN`**; leave the workflow `secrets:` entry pointing at it anyway (empty → anonymous clone).
+
+   **Pull requests from forks** do not receive repository secrets; those workflow runs will fail the clone step unless **`backend`** is public. Same-repo PRs are fine.
 
 4. Open **Actions** and confirm the workflow run completes. The default mode is **`learning`** so the gate collects data and does not block on score (good for a first green run). Switch to **`enforcing`** in `.github/workflows/apithreshold-gate.yml` when you want CI to fail on threshold.
 

@@ -27,5 +27,5 @@ jobs:
           spec: openapi.yaml
           # learning: does not block on score (good first proof). Use enforcing when ready.
           mode: learning
-          # Use git while apithreshold is not on PyPI yet.
+          # Action default is git (backend). When on PyPI: install-source: pypi
           install-source: git

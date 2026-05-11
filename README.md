@@ -49,9 +49,27 @@ This is a **standalone git repository** you push under the **`apithreshold` org*
 
 4. Open **Actions** and confirm the workflow run completes. The default mode is **`learning`** so the gate collects data and does not block on score (good for a first green run). Switch to **`enforcing`** in `.github/workflows/apithreshold-gate.yml` when you want CI to fail on threshold.
 
-## Install source
+## Install source (PyPI vs backend repo)
 
-By default the composite action tries **`pip install apithreshold`** (PyPI). If the package is not published yet, set workflow input **`install-source`** to **`git`** so it installs from `https://github.com/apithreshold/backend.git` instead.
+**`apithreshold` is not on PyPI yet.** The composite action defaults to **`install-source: git`**, which runs:
+
+```bash
+pip install "git+https://github.com/apithreshold/backend.git"
+```
+
+In `.github/workflows/apithreshold-gate.yml`, pass **`install-source: git`** (or omit it — same default). When the package is published, switch to **`install-source: pypi`**.
+
+**Pin a commit or tag** (reproducible CI):
+
+```yaml
+with:
+  install-source: git
+  backend-repo: "https://github.com/apithreshold/backend.git@v0.1.0"
+```
+
+Use a real tag on **apithreshold/backend**, or a full commit SHA after `@`.
+
+**Private fork:** set `backend-repo` to an HTTPS URL `gh`/`pip` can reach (often a machine user + PAT in a secret and a URL that embeds auth — avoid logging the URL).
 
 ## Costs and runtime
 

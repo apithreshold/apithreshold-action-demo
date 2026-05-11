@@ -12,9 +12,13 @@ inputs:
     required: false
     default: learning
   install-source:
-    description: "pypi | git — where to install apithreshold from"
+    description: "git (backend repo) | pypi — apithreshold is not on PyPI yet; default is git"
     required: false
-    default: pypi
+    default: git
+  backend-repo:
+    description: "Git URL for pip install (hatch package at repo root). Override for forks."
+    required: false
+    default: "https://github.com/apithreshold/backend.git"
 runs:
   using: composite
   steps:
@@ -28,10 +32,10 @@ runs:
       run: |
         set -euo pipefail
         python -m pip install --upgrade pip
-        if [ "${{ inputs.install-source }}" = "git" ]; then
-          pip install "git+https://github.com/apithreshold/backend.git"
+        if [ "${{ inputs.install-source }}" = "pypi" ]; then
+          pip install apithreshold
         else
-          pip install apithreshold || pip install "git+https://github.com/apithreshold/backend.git"
+          pip install "git+${{ inputs.backend-repo }}"
         fi
 
     - name: Run gate

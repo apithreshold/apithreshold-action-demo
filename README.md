@@ -57,7 +57,7 @@ This is a **standalone git repository** you push under the **`apithreshold` org*
 
    **Organization secrets:** if you store the PAT as an org secret, ensure it is **allowed for repository `apithreshold-action-demo`** (org → Settings → Secrets and variables → Actions → repository access).
 
-4. Open **Actions** and confirm the workflow run completes. The default mode is **`learning`** (set via workflow `env` `APITHRESHOLD_MODE`) so the gate collects data and does not block on score (good for a first green run). Set **`APITHRESHOLD_MODE`** to **`enforcing`** in `.github/workflows/apithreshold-gate.yml` when you want CI to fail on threshold.
+4. Open **Actions** and confirm the workflow run completes. **`learning`** mode exits **0** even when the score is below the threshold (the CLI may still print *Gate Blocked* — that is informational only). This workflow uses **`enforcing`** on **`pull_request`** and **`workflow_dispatch`** so merge checks **fail** when the score is below the threshold; **`push`** to `main`/`master` still uses **`learning`** so post-merge runs stay non-blocking unless you change that expression in `.github/workflows/apithreshold-gate.yml`.
 
 ## Install source (PyPI vs backend repo)
 

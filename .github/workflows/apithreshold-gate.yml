@@ -1,0 +1,31 @@
+name: APIThreshold gate
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: apithreshold-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: APIThreshold gate
+        uses: ./.github/actions/apithreshold-gate
+        with:
+          spec: openapi.yaml
+          # learning: does not block on score (good first proof). Use enforcing when ready.
+          mode: learning
+          # Use git while apithreshold is not on PyPI yet.
+          install-source: git

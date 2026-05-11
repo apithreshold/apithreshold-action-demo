@@ -1,0 +1,45 @@
+name: "APIThreshold quality gate"
+description: "Run apithreshold gate on an OpenAPI spec (composite action proof)."
+branding:
+  icon: shield
+  color: red
+inputs:
+  spec:
+    description: "Path to OpenAPI spec file (repo-relative)"
+    required: true
+  mode:
+    description: "learning | warning | enforcing | strict"
+    required: false
+    default: learning
+  install-source:
+    description: "pypi | git — where to install apithreshold from"
+    required: false
+    default: pypi
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install apithreshold
+      shell: bash
+      run: |
+        set -euo pipefail
+        python -m pip install --upgrade pip
+        if [ "${{ inputs.install-source }}" = "git" ]; then
+          pip install "git+https://github.com/apithreshold/backend.git"
+        else
+          pip install apithreshold || pip install "git+https://github.com/apithreshold/backend.git"
+        fi
+
+    - name: Run gate
+      shell: bash
+      env:
+        OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
+      run: |
+        set -euo pipefail
+        apithreshold gate "${{ inputs.spec }}" \
+          --mode "${{ inputs.mode }}" \
+          --project-id "${{ github.repository }}"

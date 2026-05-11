@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info:
+  title: Action demo API
+  version: "1.0.0"
+paths:
+  /hello:
+    get:
+      summary: Hello world
+      responses:
+        "200":
+          description: OK

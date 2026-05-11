@@ -1,6 +1,6 @@
 # APIThreshold GitHub Action — proof repo
 
-Minimal OpenAPI spec plus a **local composite action** and workflow to prove `apithreshold gate` in CI.
+Minimal OpenAPI spec plus a **workflow** (`.github/workflows/apithreshold-gate.yml`) that runs `apithreshold gate` in CI. Install and gate run as **normal job steps** so `BACKEND_GITHUB_TOKEN` and `OPENAI_API_KEY` map from repository secrets into `env` reliably (GitHub does not allow a `secrets:` block on `uses: ./...` composite steps, and passing PATs through composite `inputs` is unreliable for `pip`/`git`).
 
 Canonical home once published: **`apithreshold/apithreshold-action-demo`** on GitHub ([github.com/apithreshold/apithreshold-action-demo](https://github.com/apithreshold/apithreshold-action-demo)).
 
@@ -49,35 +49,36 @@ This is a **standalone git repository** you push under the **`apithreshold` org*
    | **`OPENAI_API_KEY`** | Always — used by `apithreshold gate` for the LLM. |
    | **`BACKEND_GITHUB_TOKEN`** | **If `apithreshold/backend` is private** (default for many orgs). CI cannot `git clone` a private repo without credentials. |
 
-   **PAT for `BACKEND_GITHUB_TOKEN`:** GitHub → **Settings** (your account or a bot user) → **Developer settings** → **Personal access tokens**. Create a **fine-grained** token with **Contents: Read** on repository **`apithreshold/backend`** only (minimum scope). Paste the token as secret **`BACKEND_GITHUB_TOKEN`** on **`apithreshold-action-demo`**.
+   **PAT for `BACKEND_GITHUB_TOKEN`:** GitHub → **Settings** (your account or a bot user) → **Developer settings** → **Personal access tokens**. Create a **fine-grained** token with **Contents: Read** on repository **`apithreshold/backend`** only (minimum scope). Paste the token as secret **`BACKEND_GITHUB_TOKEN`** on **`apithreshold-action-demo`**. If your org uses **SAML SSO**, authorize the token for the org.
 
-   If **`backend` is public**, you can omit **`BACKEND_GITHUB_TOKEN`**; the workflow still passes `${{ secrets.BACKEND_GITHUB_TOKEN }}` into the action (empty → anonymous clone).
+   If **`backend` is public**, you can omit creating **`BACKEND_GITHUB_TOKEN`**; `${{ secrets.BACKEND_GITHUB_TOKEN }}` is then empty and the install step clones anonymously.
 
    **Pull requests from forks** do not receive repository secrets; those workflow runs will fail the clone step unless **`backend`** is public. Same-repo PRs are fine.
 
-4. Open **Actions** and confirm the workflow run completes. The default mode is **`learning`** so the gate collects data and does not block on score (good for a first green run). Switch to **`enforcing`** in `.github/workflows/apithreshold-gate.yml` when you want CI to fail on threshold.
+4. Open **Actions** and confirm the workflow run completes. The default mode is **`learning`** (set via workflow `env` `APITHRESHOLD_MODE`) so the gate collects data and does not block on score (good for a first green run). Set **`APITHRESHOLD_MODE`** to **`enforcing`** in `.github/workflows/apithreshold-gate.yml` when you want CI to fail on threshold.
 
 ## Install source (PyPI vs backend repo)
 
-**`apithreshold` is not on PyPI yet.** The composite action defaults to **`install-source: git`**, which runs:
+**`apithreshold` is not on PyPI yet.** The workflow defaults to **`INSTALL_SOURCE: git`**, which runs (with optional PAT for private clone):
 
 ```bash
 pip install "git+https://github.com/apithreshold/backend.git"
 ```
 
-In `.github/workflows/apithreshold-gate.yml`, pass **`install-source: git`** (or omit it — same default). When the package is published, switch to **`install-source: pypi`**.
+When the package is published, set **`INSTALL_SOURCE: pypi`** in the workflow `env` and adjust the install step if needed.
 
-**Pin a commit or tag** (reproducible CI):
+**Pin a commit or tag** (reproducible CI): set **`BACKEND_REPO`** in the workflow `env`, for example:
 
 ```yaml
-with:
-  install-source: git
-  backend-repo: "https://github.com/apithreshold/backend.git@v0.1.0"
+env:
+  BACKEND_REPO: https://github.com/apithreshold/backend.git@v0.1.0
 ```
 
 Use a real tag on **apithreshold/backend**, or a full commit SHA after `@`.
 
-**Private fork:** set `backend-repo` to an HTTPS URL `gh`/`pip` can reach (often a machine user + PAT in a secret and a URL that embeds auth — avoid logging the URL).
+**403 on clone:** the token is missing, not authorized for **`apithreshold/backend`**, or not SSO-authorized. Same symptom as an anonymous clone of a private repo.
+
+**Private fork:** point **`BACKEND_REPO`** at an HTTPS URL `pip`/`git` can reach (often a machine user + **`BACKEND_GITHUB_TOKEN`** with access to that fork).
 
 ## Costs and runtime
 
@@ -87,4 +88,4 @@ Use a real tag on **apithreshold/backend**, or a full commit SHA after `@`.
 
 - Pin a **released** version: `pip install apithreshold==0.x.y`.
 - Add **`--project-id`** stability (already set to `${{ github.repository }}` in the workflow).
-- When the CLI supports **`--ci`** and **`GITHUB_OUTPUT` gate state**, extend `action.yml` and document passing state between runs (see your Pre-Beta technical track).
+- When the CLI supports **`--ci`** and **`GITHUB_OUTPUT` gate state**, extend the workflow and document passing state between runs (see your Pre-Beta technical track).

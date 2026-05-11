@@ -11,6 +11,15 @@ concurrency:
   group: apithreshold-gate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Install + gate run as normal job steps so secrets map straight to `env` (reliable for
+# private `git+https` installs). Local composite actions cannot use `secrets:` on the step,
+# and passing PATs through composite `inputs` → `env` is unreliable for pip/git.
+env:
+  APITHRESHOLD_SPEC: openapi.yaml
+  APITHRESHOLD_MODE: learning
+  INSTALL_SOURCE: git
+  BACKEND_REPO: https://github.com/apithreshold/backend.git
+
 jobs:
   gate:
     runs-on: ubuntu-latest
@@ -19,15 +28,38 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Local composite actions (`uses: ./...`) cannot use a step-level `secrets:` map (workflow
-      # parse error). Pass credentials via `with` from the workflow secrets context instead.
-      - name: APIThreshold gate
-        uses: ./.github/actions/apithreshold-gate
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          spec: openapi.yaml
-          # learning: does not block on score (good first proof). Use enforcing when ready.
-          mode: learning
-          # Action default is git (backend). When on PyPI: install-source: pypi
-          install-source: git
-          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
-          backend_github_token: ${{ secrets.BACKEND_GITHUB_TOKEN }}
+          python-version: "3.12"
+
+      - name: Install apithreshold
+        shell: bash
+        env:
+          BACKEND_GITHUB_TOKEN: ${{ secrets.BACKEND_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          if [ "${INSTALL_SOURCE}" = "pypi" ]; then
+            pip install apithreshold
+          else
+            REPO="${BACKEND_REPO}"
+            if [ -n "${BACKEND_GITHUB_TOKEN:-}" ]; then
+              case "$REPO" in
+                https://github.com/*)
+                  REPO="https://x-access-token:${BACKEND_GITHUB_TOKEN}@github.com/${REPO#https://github.com/}"
+                  ;;
+              esac
+            fi
+            pip install "git+${REPO}"
+          fi
+
+      - name: Run APIThreshold gate
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          apithreshold gate "${APITHRESHOLD_SPEC}" \
+            --mode "${APITHRESHOLD_MODE}" \
+            --project-id "${{ github.repository }}"

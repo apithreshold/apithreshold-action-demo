@@ -1,0 +1,13 @@
+# Intentionally thin OpenAPI for live demos: missing security, error models,
+# request/response schemas, examples, and operation detail — expect a low
+# quality score vs enforcing threshold, then use explain/report in CI.
+openapi: 3.0.3
+info:
+  title: Demo API (intentionally weak)
+  version: "0.0.1"
+paths:
+  /items:
+    get:
+      responses:
+        "200":
+          description: ok

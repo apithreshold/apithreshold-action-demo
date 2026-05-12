@@ -57,7 +57,19 @@ This is a **standalone git repository** you push under the **`apithreshold` org*
 
    **Organization secrets:** if you store the PAT as an org secret, ensure it is **allowed for repository `apithreshold-action-demo`** (org → Settings → Secrets and variables → Actions → repository access).
 
-4. Open **Actions** and confirm the workflow run completes. The workflow uses **`enforcing`** for **all** triggers (`push`, `pull_request`, `workflow_dispatch`): if the score is below the threshold, the job **fails**. To run in non-blocking **learning** mode temporarily, set **`APITHRESHOLD_MODE: learning`** in `.github/workflows/apithreshold-gate.yml` `env` (in **learning**, the CLI may still print *Gate Blocked* while exiting **0**).
+4. Open **Actions** and confirm the workflow run completes. **Push** and **pull_request** use **`openapi.yaml`** and **`enforcing`** by default. **`workflow_dispatch`** adds UI inputs so you can run **`demo/openapi-demo-fail.yaml`** or **`learning`** mode without editing YAML. For a repo-wide non-blocking default, set **`APITHRESHOLD_MODE: learning`** in the workflow `env` (in **learning**, the CLI may still print *Gate Blocked* while exiting **0**).
+
+## Live demo (about 5 minutes)
+
+Use this when you want a **clear narrative** for an audience: policy gate → optional deep remediation → artifacts (and a **sticky PR comment** on same-repo PRs).
+
+1. **Actions** → **APIThreshold gate** → **Run workflow**.
+2. Choose **spec_path** **`demo/openapi-demo-fail.yaml`** and **mode** **`enforcing`**, then **Run workflow**. That file is intentionally minimal (no security, schemas, or error models), so the run is very likely to **fail** the gate and automatically run **explain** + **report**, producing **apithreshold-gate-recommendations**.
+3. Open the run → **Summary**: table at the top (**60-second tour**), then failure sections and **LLM recommendations**.
+4. In the job log, expand **Run APIThreshold gate**, then **Gate failure recommendations (explain + report)**.
+5. **Artifacts**: download **apithreshold-gate-full-log** and **apithreshold-gate-recommendations**.
+
+**Pass path for comparison:** **Run workflow** with **openapi.yaml** and **enforcing** (or **learning** to show a green job while still surfacing scores in logs). **Fork pull requests** do not get the sticky PR comment (GitHub token cannot update upstream PR threads); use same-repo branches for that part of the demo.
 
 ## Install source (PyPI vs backend repo)
 

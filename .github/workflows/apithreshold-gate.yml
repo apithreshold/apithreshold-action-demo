@@ -6,6 +6,25 @@ on:
   pull_request:
     branches: [main, master]
   workflow_dispatch:
+    inputs:
+      spec_path:
+        description: "OpenAPI file to gate (demo spec is tuned to fail enforcing and exercise explain/report)."
+        type: choice
+        required: true
+        default: openapi.yaml
+        options:
+          - openapi.yaml
+          - demo/openapi-demo-fail.yaml
+      mode:
+        description: "Gate mode — enforcing fails the job when score is below threshold."
+        type: choice
+        required: true
+        default: enforcing
+        options:
+          - enforcing
+          - learning
+          - warning
+          - strict
 
 concurrency:
   group: apithreshold-gate-${{ github.workflow }}-${{ github.ref }}
@@ -14,10 +33,7 @@ concurrency:
 # Clone backend with git + trimmed token (org secrets often include a trailing newline when
 # pasted — actions/checkout passes the raw value and Git returns 403). Probe with gh first.
 env:
-  APITHRESHOLD_SPEC: openapi.yaml
-  # enforcing = exit non-zero when score < threshold (CI fails on push, PR, and dispatch).
-  # To collect data without failing CI, temporarily set learning (CLI may still print Gate Blocked).
-  APITHRESHOLD_MODE: enforcing
+  # Spec and mode default here for push/PR; workflow_dispatch overrides via job env below.
   INSTALL_SOURCE: git
   BACKEND_REPOSITORY: apithreshold/backend
   BACKEND_REF: main
@@ -26,12 +42,41 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      APITHRESHOLD_SPEC: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.spec_path || 'openapi.yaml' }}
+      APITHRESHOLD_MODE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode || 'enforcing' }}
     permissions:
       contents: read
       actions: write
+      pull-requests: write
     steps:
       - name: Checkout (this repo)
         uses: actions/checkout@v4
+
+      - name: Summary — run context (for presenters)
+        run: |
+          {
+            echo "## APIThreshold gate — what this run is doing"
+            echo ""
+            echo "This job **parses your OpenAPI**, runs the APIThreshold pipeline (**risk → generated tests → quality score**), then applies a **threshold** in the selected **mode**."
+            echo ""
+            echo "| | |"
+            echo "|:--|:--|"
+            echo "| **Spec** | \`${APITHRESHOLD_SPEC}\` |"
+            echo "| **Mode** | \`${APITHRESHOLD_MODE}\` |"
+            echo "| **Trigger** | \`${GITHUB_EVENT_NAME}\` |"
+            echo "| **Ref** | \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA:0:7}\` |"
+            echo "| **Workflow run** | [Open run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) |"
+            echo ""
+            echo "### Where to look (60-second tour)"
+            echo ""
+            echo "1. **This Summary** (scroll): gate headline, checklist, verbatim CLI log, and on failure **LLM recommendations**."
+            echo "2. **Steps** (left): expand **Run APIThreshold gate**; on failure, **Gate failure recommendations (explain + report)**."
+            echo "3. **Artifacts**: **apithreshold-gate-full-log** every time; **apithreshold-gate-recommendations** when the gate failed."
+            echo ""
+            echo "_Live demo tip: use **Actions → APIThreshold gate → Run workflow** with spec **demo/openapi-demo-fail.yaml** and mode **enforcing** to show a predictable fail plus follow-up recommendations in one run._"
+            echo ""
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Backend auth — diagnose
         run: |
@@ -175,6 +220,22 @@ jobs:
               echo "_Summary from \`.github/workflows/apithreshold-gate.yml\`._"
             } >> "${GITHUB_STEP_SUMMARY}"
             echo "::error title=APIThreshold gate (${APITHRESHOLD_MODE})::${GATE_HEADLINE}. Summary embeds full log if under size cap; otherwise use artifact + Download log archive. Expand **Run APIThreshold gate** for live step log."
+            if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+              RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+              {
+                echo "### APIThreshold gate — blocked"
+                echo ""
+                echo "**${GATE_HEADLINE}**"
+                echo ""
+                echo "| Field | Value |"
+                echo "|------|-------|"
+                echo "| Mode | \`${APITHRESHOLD_MODE}\` |"
+                echo "| Spec | \`${APITHRESHOLD_SPEC}\` |"
+                echo "| Run | [Open workflow run](${RUN_URL}) — use the **Summary** tab for checklist + verbatim log + LLM recommendations |"
+                echo ""
+                echo "**Next steps for reviewers:** expand **Gate failure recommendations (explain + report)** in the job log; download **apithreshold-gate-recommendations** and **apithreshold-gate-full-log** from **Artifacts**."
+              } > gate_pr_comment.md
+            fi
             exit "$gate_rc"
           fi
           {
@@ -188,6 +249,18 @@ jobs:
             echo "2. Expand **Run APIThreshold gate** above for the live log stream."
             echo "3. Run **⋯** (top right of the workflow run) → **Download log archive** for all steps as files."
           } >> "${GITHUB_STEP_SUMMARY}"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            {
+              echo "### APIThreshold gate — passed"
+              echo ""
+              echo "Mode **\`${APITHRESHOLD_MODE}\`** on spec **\`${APITHRESHOLD_SPEC}\`**."
+              echo ""
+              echo "| Field | Value |"
+              echo "|------|-------|"
+              echo "| Run | [Open workflow run](${RUN_URL}) — **Summary** has the verbatim log; **apithreshold-gate-full-log** matches the step output |"
+            } > gate_pr_comment.md
+          fi
 
       # Gate stdout is Rich panels + DEBUG only; full remediation needs follow-up LLM calls.
       - name: Gate failure recommendations (explain + report)
@@ -297,3 +370,41 @@ jobs:
           path: gate_recommendations.log
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: PR comment — APIThreshold result (sticky, same-repo PRs)
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- apithreshold-gate-report -->';
+            const path = 'gate_pr_comment.md';
+            if (!fs.existsSync(path)) {
+              core.info('No gate_pr_comment.md; skip PR comment (e.g. job failed before gate step).');
+              return;
+            }
+            const body = marker + '\n' + fs.readFileSync(path, 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }

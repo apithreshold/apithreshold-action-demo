@@ -8,12 +8,13 @@ on:
   workflow_dispatch:
     inputs:
       spec_path:
-        description: "OpenAPI file to gate (demo spec is tuned to fail enforcing and exercise explain/report)."
+        description: "OpenAPI file to gate (happy-path demo spec targets ~95% enforcing pass; fail demo exercises explain/report)."
         type: choice
         required: true
         default: openapi.yaml
         options:
           - openapi.yaml
+          - demo/openapi-ci-happy-path.yaml
           - demo/openapi-demo-fail.yaml
       mode:
         description: "Gate mode — enforcing fails the job when score is below threshold."
@@ -74,7 +75,7 @@ jobs:
             echo "2. **Steps** (left): expand **Run APIThreshold gate**; on failure, **Gate failure recommendations (explain + report)**."
             echo "3. **Artifacts**: **apithreshold-gate-full-log** every time; **apithreshold-gate-recommendations** when the gate failed."
             echo ""
-            echo "_Live demo tip: use **Actions → APIThreshold gate → Run workflow** with spec **demo/openapi-demo-fail.yaml** and mode **enforcing** to show a predictable fail plus follow-up recommendations in one run._"
+            echo "_Live demo tips: **Happy path** — spec **demo/openapi-ci-happy-path.yaml**, mode **enforcing** (expect score ≥ default **95%** threshold, green job). **Failure path** — **demo/openapi-demo-fail.yaml** + **enforcing** for predictable fail plus explain/report._"
             echo ""
           } >> "${GITHUB_STEP_SUMMARY}"
 

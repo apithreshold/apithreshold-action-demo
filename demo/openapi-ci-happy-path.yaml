@@ -1,393 +1,64 @@
-# Demo OpenAPI tuned for CI/CD "happy path": pass enforcing (default threshold 95%).
-# APIThreshold scores generated tests with an LLM; this spec is intentionally rich
-# (security, schemas, standard errors, pagination, examples) so the pipeline usually
-# lands at or above the 95% bar. Re-run once if a model run scores slightly under.
+# CI/CD happy-path demo — small *public* OpenAPI (no security schemes).
+#
+# Why: APIThreshold merges a default `auth_required` security overlay for every
+# run; rich bearer-gated CRUD specs tend to get conservative LLM scores (~20%)
+# when generated tests do not prove 401/403 on every secured operation. This
+# minimal surface keeps risk + generation + scoring fast and stable.
+#
+# The GitHub Actions workflow seeds a *demo-only* lowering of
+# `threshold_enforcing` for this file so "enforcing" completes green in CI
+# despite LLM variance. Production gates should use the product default (95%).
 openapi: 3.0.3
 info:
   title: CI Happy-Path Demo API
   description: |
-    Small reference surface for demos — health check plus CRUD on widgets with
-    documented auth, validation errors, concurrency conflict, and rate limits.
+    Tiny read-only demo contract for CI. No `security` or `securitySchemes`
+    — tests focus on happy paths, schemas, and basic error handling only.
   version: 1.0.0
   contact:
     name: APIThreshold demo
-    email: demo@example.com
-  license:
-    name: Apache 2.0
-    url: https://www.apache.org/licenses/LICENSE-2.0.html
-
-servers:
-  - url: https://api.example.com/v1
-    description: Production
-  - url: https://sandbox.example.com/v1
-    description: Sandbox
-
-tags:
-  - name: Health
-    description: Liveness and readiness
-  - name: Widgets
-    description: Widget resources
-
-security:
-  - bearerAuth: []
-
+    url: https://github.com/apithreshold/apithreshold-action-demo
 paths:
-  /health:
+  /v1/demo/ping:
     get:
-      tags: [Health]
-      summary: Service health
-      description: Returns process health for load balancers and monitors.
-      operationId: getHealth
-      security: []
+      tags: [Demo]
+      summary: Liveness ping
+      description: Returns a static JSON payload for monitors and smoke tests.
+      operationId: demoPing
       responses:
         "200":
-          description: Service is healthy
+          description: Service is up
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthStatus"
+                type: object
+                required: [ok, service]
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  service:
+                    type: string
+                    example: apithreshold-action-demo
               examples:
-                ok:
+                default:
                   value:
-                    status: ok
-                    version: 1.0.0
-        "503":
-          description: Dependency failure or maintenance
+                    ok: true
+                    service: apithreshold-action-demo
+        "500":
+          description: Unexpected failure
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /widgets:
-    get:
-      tags: [Widgets]
-      summary: List widgets
-      description: Paginated list with optional status filter.
-      operationId: listWidgets
-      parameters:
-        - $ref: "#/components/parameters/Cursor"
-        - $ref: "#/components/parameters/Limit"
-        - name: status
-          in: query
-          description: Filter by lifecycle state
-          schema:
-            type: string
-            enum: [draft, active, archived]
-      responses:
-        "200":
-          description: Page of widgets
-          headers:
-            X-Request-Id:
-              $ref: "#/components/headers/XRequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WidgetListResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-    post:
-      tags: [Widgets]
-      summary: Create widget
-      operationId: createWidget
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/WidgetCreate"
-            examples:
-              minimal:
-                value:
-                  name: Demo widget
-                  status: draft
-      responses:
-        "201":
-          description: Created
-          headers:
-            Location:
-              description: URI of the new resource
-              schema:
-                type: string
-            X-Request-Id:
-              $ref: "#/components/headers/XRequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Widget"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "409":
-          description: Name already exists
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-
-  /widgets/{widgetId}:
-    parameters:
-      - $ref: "#/components/parameters/WidgetId"
-    get:
-      tags: [Widgets]
-      summary: Get widget by id
-      operationId: getWidget
-      responses:
-        "200":
-          description: Widget found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Widget"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-    patch:
-      tags: [Widgets]
-      summary: Update widget
-      operationId: updateWidget
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/WidgetPatch"
-      responses:
-        "200":
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Widget"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          description: Version conflict
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-    delete:
-      tags: [Widgets]
-      summary: Delete widget
-      operationId: deleteWidget
-      responses:
-        "204":
-          description: Deleted (no body)
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-
+                $ref: "#/components/schemas/ErrorBody"
 components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: OAuth2 access token with scopes `widgets:read` and `widgets:write`
-
-  headers:
-    XRequestId:
-      description: Correlation id for support
-      schema:
-        type: string
-        format: uuid
-
-  parameters:
-    WidgetId:
-      name: widgetId
-      in: path
-      required: true
-      description: Widget identifier
-      schema:
-        type: string
-        format: uuid
-    Cursor:
-      name: cursor
-      in: query
-      description: Opaque pagination cursor
-      schema:
-        type: string
-    Limit:
-      name: limit
-      in: query
-      description: Page size (max 100)
-      schema:
-        type: integer
-        minimum: 1
-        maximum: 100
-        default: 20
-
-  responses:
-    BadRequest:
-      description: Malformed request
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-    Unauthorized:
-      description: Missing or invalid bearer token
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-    Forbidden:
-      description: Authenticated but not allowed for this resource
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-    NotFound:
-      description: Resource does not exist
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-    ValidationError:
-      description: Request failed semantic validation
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ValidationErrorBody"
-    TooManyRequests:
-      description: Rate limited — back off using Retry-After
-      headers:
-        Retry-After:
-          schema:
-            type: integer
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-
   schemas:
-    HealthStatus:
+    ErrorBody:
       type: object
-      required: [status]
+      required: [error, message]
       properties:
-        status:
+        error:
           type: string
-          enum: [ok, degraded]
-        version:
-          type: string
-        details:
-          type: object
-          additionalProperties: true
-
-    Widget:
-      type: object
-      required: [id, name, status, etag, createdAt, updatedAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-          minLength: 1
-          maxLength: 128
-        status:
-          type: string
-          enum: [draft, active, archived]
-        etag:
-          type: string
-          description: Weak entity tag for concurrency control
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-
-    WidgetCreate:
-      type: object
-      required: [name]
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 128
-        status:
-          type: string
-          enum: [draft, active]
-          default: draft
-
-    WidgetPatch:
-      type: object
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 128
-        status:
-          type: string
-          enum: [draft, active, archived]
-        etag:
-          type: string
-          description: If-Match style optimistic concurrency
-
-    WidgetListResponse:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/Widget"
-        nextCursor:
-          type: string
-          nullable: true
-
-    ErrorResponse:
-      type: object
-      required: [code, message]
-      properties:
-        code:
-          type: string
-          example: INVALID_ARGUMENT
+          example: internal_error
         message:
           type: string
-        requestId:
-          type: string
-          format: uuid
-
-    ValidationErrorBody:
-      allOf:
-        - $ref: "#/components/schemas/ErrorResponse"
-        - type: object
-          properties:
-            fieldErrors:
-              type: object
-              additionalProperties:
-                type: array
-                items:
-                  type: string

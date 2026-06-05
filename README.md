@@ -88,6 +88,17 @@ APIThreshold can **tighten the bar over time** instead of flipping straight to a
 
 **Presenter line:** *“We start in learning so teams aren’t blocked while we measure; warning surfaces gaps in PRs; enforcing on `main` only after stable scores — state lives in Actions cache, not in git history.”*
 
+### Why does the CLI say BLOCKED but CI stays green?
+
+APIThreshold uses **two different outcomes**:
+
+| Layer | Learning / warning | Enforcing / strict |
+|-------|--------------------|--------------------|
+| **Quality** | Score vs threshold — can show **BLOCKED** if below bar | Same |
+| **CI exit code** | Always **0** (observe only) | **1** if below bar → red job |
+
+So **BLOCKED** means “quality did not meet this mode’s threshold,” not “GitHub Actions failed.” Only **enforcing** and **strict** connect a low score to a failed workflow. If you want a low score to fail CI immediately, use **`workflow_dispatch` → mode `enforcing`** (or wait until progressive advance reaches enforcing on `main`).
+
 ## Live demo (about 5 minutes)
 
 Use this when you want a **clear narrative** for an audience: policy gate → optional deep remediation → artifacts (and a **sticky PR comment** on same-repo PRs).

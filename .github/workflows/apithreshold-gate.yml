@@ -272,16 +272,19 @@ jobs:
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
           if [ "$gate_rc" -ne 0 ]; then
-            SUMMARY_HEADLINE="**CI failed** — score **${GATE_SCORE:-?}** is below **${GATE_MODE_RUN:-${GATE_MODE_DISPLAY}}** threshold **${GATE_THRESHOLD:-?}** (job exit **${gate_rc}**)."
-            CI_ROW="**Failed** (blocking mode)"
+            QUALITY_ROW="**Below bar** — ${GATE_SCORE:-?} < ${GATE_THRESHOLD:-?} (${GATE_MODE_RUN:-mode})"
+            MERGE_ROW="**Blocks merge** — enforcing/strict turns a low score into a red CI job"
+            SUMMARY_HEADLINE="**Merge blocked** — quality score **${GATE_SCORE:-?}** is under **${GATE_MODE_RUN:-?}** threshold **${GATE_THRESHOLD:-?}**."
             GATE_ANNOTATION="${GATE_SCORE:-?} below ${GATE_THRESHOLD:-?} (${GATE_MODE_RUN:-mode}) — CI blocked"
           elif echo "${GATE_RESULT}" | grep -qi 'BLOCKED'; then
-            SUMMARY_HEADLINE="**Below threshold** — score **${GATE_SCORE:-?}** is under **${GATE_MODE_RUN:-?}** bar **${GATE_THRESHOLD:-?}**. **CI still passes** (learning/warning never fail the job)."
-            CI_ROW="**Passed** (non-blocking — only enforcing/strict fail CI)"
-            GATE_ANNOTATION="${GATE_SCORE:-?} below ${GATE_THRESHOLD:-?} (${GATE_MODE_RUN:-mode}) — CI not blocked"
+            QUALITY_ROW="**Below bar** — ${GATE_SCORE:-?} < ${GATE_THRESHOLD:-?} (${GATE_MODE_RUN:-mode})"
+            MERGE_ROW="**Does not block merge** — ${GATE_MODE_RUN:-learning/warning} is observe-only in APIThreshold"
+            SUMMARY_HEADLINE="**Quality below bar, merge not blocked** — score **${GATE_SCORE:-?}** < **${GATE_THRESHOLD:-?}** in **${GATE_MODE_RUN:-?}** mode."
+            GATE_ANNOTATION="${GATE_SCORE:-?} below ${GATE_THRESHOLD:-?} (${GATE_MODE_RUN:-mode}) — observe only"
           else
-            SUMMARY_HEADLINE="**Passed** — score **${GATE_SCORE:-?}** meets **${GATE_MODE_RUN:-?}** threshold **${GATE_THRESHOLD:-?}**."
-            CI_ROW="**Passed**"
+            QUALITY_ROW="**Meets bar** — ${GATE_SCORE:-?} ≥ ${GATE_THRESHOLD:-?}"
+            MERGE_ROW="**Allows merge** (for this mode)"
+            SUMMARY_HEADLINE="**Quality meets bar** — score **${GATE_SCORE:-?}** ≥ threshold **${GATE_THRESHOLD:-?}** (**${GATE_MODE_RUN:-?}**)."
             GATE_ANNOTATION="${GATE_SCORE:-?} meets threshold (${GATE_MODE_RUN:-mode})"
           fi
 
@@ -305,14 +308,18 @@ jobs:
             echo "| | |"
             echo "|:--|:--|"
             echo "| Spec | \`${APITHRESHOLD_SPEC}\` |"
-            echo "| Gate mode | \`${GATE_MODE_RUN:-${GATE_MODE_DISPLAY}}\` |"
+            echo "| Mode | \`${GATE_MODE_RUN:-${GATE_MODE_DISPLAY}}\` |"
             echo "| Score / threshold | **${GATE_SCORE:-?}** / **${GATE_THRESHOLD:-?}** |"
-            echo "| Gate result | \`${GATE_RESULT:-?}\` |"
-            echo "| CI job | ${CI_ROW} |"
-            echo "| Progressive | stored mode \`${STORED_MODE}\` · **${HIST_COUNT}** cached runs on \`${GITHUB_REF_NAME}\` |"
+            echo "| **1. Quality** | ${QUALITY_ROW} |"
+            echo "| **2. Merge / CI** | ${MERGE_ROW} |"
+            echo "| Progressive | \`${STORED_MODE}\` · **${HIST_COUNT}** runs cached on \`${GITHUB_REF_NAME}\` |"
             echo ""
+            if echo "${GATE_RESULT}" | grep -qi 'BLOCKED' && [ "$gate_rc" -eq 0 ]; then
+              echo "> **Why is the workflow green?** APIThreshold separates **measurement** from **enforcement**. In **learning** and **warning**, a below-threshold score is reported as \`BLOCKED\` in the CLI (quality failed the bar), but the process **exit code stays 0** so CI does not fail. Only **enforcing** and **strict** set exit code **1** and turn a low score into a red job. That lets teams see gaps early without blocking every PR during adoption."
+              echo ""
+            fi
             if [ "${APITHRESHOLD_PROGRESSIVE}" = "true" ] || [ "${GATE_MODE_RUN}" = "learning" ] || [ "${GATE_MODE_RUN}" = "warning" ]; then
-              echo "_Progressive ramp: **learning** 50% → **warning** 80% → **enforcing** 95% (only enforcing blocks CI). State in Actions cache, not Git._"
+              echo "_Ramp: learning 50% (observe) → warning 80% (observe) → enforcing 95% (**blocks**)._"
               echo ""
             fi
             if [ "$gate_rc" -ne 0 ]; then
@@ -348,7 +355,8 @@ jobs:
               echo ""
               echo "| Spec | \`${APITHRESHOLD_SPEC}\` |"
               echo "| Score / threshold | **${GATE_SCORE:-?}** / **${GATE_THRESHOLD:-?}** |"
-              echo "| CI job | ${CI_ROW} |"
+              echo "| Quality | ${QUALITY_ROW} |"
+              echo "| Merge / CI | ${MERGE_ROW} |"
               echo "| [Run](${RUN_URL}) | Summary + artifacts |"
             } > gate_pr_comment.md
           fi

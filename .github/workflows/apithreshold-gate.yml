@@ -206,8 +206,10 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ~/.apithreshold/state
-          key: apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}
+          # Unique key per run so save can succeed; restore-keys picks latest for this branch.
+          key: apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
+            apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}-
             apithreshold-gate-${{ github.repository }}-
 
       # Happy-path demo: lower threshold so LLM variance still "meets bar" in logs.
@@ -596,7 +598,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ~/.apithreshold/state
-          key: ${{ steps.gate-state-cache-restore.outputs.cache-primary-key }}
+          key: apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}-${{ github.run_id }}
 
       - name: Upload full apithreshold gate log (verbatim)
         if: always()

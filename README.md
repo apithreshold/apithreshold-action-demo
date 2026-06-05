@@ -76,8 +76,8 @@ APIThreshold can **tighten the bar over time** instead of flipping straight to a
 
 1. **`actions/cache`** restores `~/.apithreshold/state/<project-id>/gate_state.json` before `apithreshold gate`.
 2. On **trusted** runs, **`--mode` is omitted** on `main` / branch push so the CLI calls **`get_current_mode()`** and can auto-advance.
-3. At job end, **`save-always: true`** writes updated state back to the cache key  
-   `apithreshold-gate-<repo>-<branch>`.
+3. At job end, **`actions/cache/save`** writes updated state under a **per-run** key  
+   `apithreshold-gate-<repo>-<branch>-<run_id>`; restore uses **restore-keys** to load the latest entry for that branch (GitHub does not allow overwriting an existing cache key).
 4. Artifact **`apithreshold-gate-state`** (90-day retention) gives auditors a per-run snapshot.
 
 **Policy matrix (this workflow):**

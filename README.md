@@ -76,8 +76,8 @@ APIThreshold can **tighten the bar over time** instead of flipping straight to a
 
 1. **`actions/cache`** restores `~/.apithreshold/state/<project-id>/gate_state.json` before `apithreshold gate`.
 2. On **trusted** runs, **`--mode` is omitted** on `main` / branch push so the CLI calls **`get_current_mode()`** and can auto-advance.
-3. At job end, **`actions/cache/save`** writes updated state under a **per-spec, per-run** key  
-   `apithreshold-gate-<repo>-<branch>-<spec-slug>-<run_id>`; restore uses **restore-keys** to load the latest entry for that branch **and spec** (GitHub does not allow overwriting an existing cache key; demo specs do not share thresholds).
+3. At job end, **`actions/cache/save`** writes updated state under a **per-spec + scope, per-run** key  
+   `apithreshold-gate-<repo>-<branch>-<spec-slug>-<scope-hash>-<run_id>`; restore uses **restore-keys** to load the latest entry for that branch, spec, and **committed** `.apithreshold/scope.yaml` (GitHub does not allow overwriting an existing cache key; changing scope busts the cache).
 4. Artifact **`apithreshold-gate-state`** (90-day retention) gives auditors a per-run snapshot.
 
 **Policy matrix (this workflow):**
@@ -101,6 +101,22 @@ APIThreshold uses **two different outcomes**:
 | **CI exit code** | Always **0** (observe only) | **1** if below bar → red job |
 
 So **BLOCKED** means “quality did not meet this mode’s threshold,” not “GitHub Actions failed.” Only **enforcing** and **strict** connect a low score to a failed workflow. If you want a low score to fail CI immediately, use **`workflow_dispatch` → mode `enforcing`** (or wait until progressive advance reaches enforcing on `main`).
+
+## Scoped and multi-spec runs (`.apithreshold/scope.yaml`)
+
+For large APIs or **multi-spec** `specs[]` scope files, commit **`.apithreshold/scope.yaml`** at the repo root (or under a service directory). The workflow:
+
+- Sets **`APITHRESHOLD_PERSIST_SCOPE=false`** and passes **`--no-persist-scope`** so CI reads scope from git and does not rewrite it.
+- Includes a **SHA-256 prefix of `scope.yaml`** in the Actions cache key so endpoint-slice changes do not reuse stale progressive state.
+- Accepts optional **`scope_path`** on **workflow_dispatch** (directory containing `.apithreshold/scope.yaml`, or path to `scope.yaml` itself) and forwards **`--scope-path`** to `apithreshold gate` — use this in monorepos when scope lives outside the repo root.
+
+**Push / PR** runs discover scope from the repo root only. For monorepo layouts on every trigger, set `working-directory` on a dedicated workflow or extend this workflow with a repo variable later.
+
+| Layout | `scope_path` (dispatch) | Cache identity |
+|--------|-------------------------|----------------|
+| Root `.apithreshold/scope.yaml` | *(empty)* | `openapi.yaml-<scope-hash>` |
+| `services/payments/.apithreshold/scope.yaml` | `services/payments` | `api-openapi.yaml-<scope-hash>` |
+| Multi-spec `specs[]` in one scope file | *(empty or service dir)* | Hash covers full `specs[]` + selected endpoints |
 
 ## Live demo (about 5 minutes)
 
@@ -191,6 +207,6 @@ On failure, the **Summary** includes score headline, remediation checklist, verb
 ## Next steps (product hardening)
 
 - Pin a **released** version: `pip install apithreshold==0.x.y`.
-- **`--project-id`** is already `${{ github.repository }}`; progressive cache is per **branch** (`github.ref_name`).
+- **`--project-id`** is already `${{ github.repository }}`; progressive cache is per **branch**, **spec**, and **scope.yaml** (`GATE_CACHE_SCOPE` in the Summary).
 - For **compliance-grade** history beyond Actions cache, export **`gate_state.json`** to object storage or the APIThreshold portal when available.
 - When the CLI supports **`--ci`** and **`GITHUB_OUTPUT`**, wire structured `GateResult` into required checks and branch protection.

@@ -27,6 +27,11 @@ on:
           - learning
           - warning
           - strict
+      scope_path:
+        description: "Optional — directory with .apithreshold/scope.yaml, or path to scope.yaml (monorepo). Empty = repo root discovery."
+        type: string
+        required: false
+        default: ""
 
 concurrency:
   group: apithreshold-gate-${{ github.workflow }}-${{ github.ref }}
@@ -46,7 +51,9 @@ jobs:
     timeout-minutes: 30
     env:
       APITHRESHOLD_SPEC: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.spec_path || 'openapi.yaml' }}
+      APITHRESHOLD_SCOPE_PATH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.scope_path || '' }}
       APITHRESHOLD_PROJECT_ID: ${{ github.repository }}
+      APITHRESHOLD_PERSIST_SCOPE: "false"
       # Public PEM is committed under license/; JWT only in secrets.APITHRESHOLD_LICENSE
       APITHRESHOLD_LICENSE_PUBLIC_KEY_FILE: ${{ github.workspace }}/license/dev-public.pem
       APITHRESHOLD_LICENSE_KID: dev
@@ -123,9 +130,28 @@ jobs:
             echo "GATE_MODE_DISPLAY=${MODE}" >> "${GITHUB_ENV}"
           fi
 
-          # Isolate Actions cache per spec so demo thresholds (e.g. happy-path 15%) do not leak.
+          # Cache scope: spec slug + scope.yaml hash (multi-spec / endpoint slice identity).
           SPEC_SLUG="$(echo "${APITHRESHOLD_SPEC}" | tr '/' '-' | tr -cd '[:alnum:]._-')"
-          echo "GATE_CACHE_SCOPE=${SPEC_SLUG}" >> "${GITHUB_ENV}"
+          SCOPE_HASH="no-scope"
+          SCOPE_FILE=""
+          if [ -n "${APITHRESHOLD_SCOPE_PATH:-}" ]; then
+            SP="${APITHRESHOLD_SCOPE_PATH}"
+            if [ -f "${SP}" ] && [ "$(basename "${SP}")" = "scope.yaml" ]; then
+              SCOPE_FILE="${SP}"
+            elif [ -f "${GITHUB_WORKSPACE}/${SP}/.apithreshold/scope.yaml" ]; then
+              SCOPE_FILE="${GITHUB_WORKSPACE}/${SP}/.apithreshold/scope.yaml"
+            elif [ -f "${SP}/.apithreshold/scope.yaml" ]; then
+              SCOPE_FILE="${SP}/.apithreshold/scope.yaml"
+            fi
+          elif [ -f "${GITHUB_WORKSPACE}/.apithreshold/scope.yaml" ]; then
+            SCOPE_FILE="${GITHUB_WORKSPACE}/.apithreshold/scope.yaml"
+          fi
+          if [ -n "${SCOPE_FILE}" ]; then
+            SCOPE_HASH="$(sha256sum "${SCOPE_FILE}" | awk '{print $1}' | cut -c1-12)"
+            echo "GATE_SCOPE_FILE=${SCOPE_FILE}" >> "${GITHUB_ENV}"
+          fi
+          echo "GATE_CACHE_SCOPE=${SPEC_SLUG}-${SCOPE_HASH}" >> "${GITHUB_ENV}"
+          echo "::notice title=Gate cache scope::\`${SPEC_SLUG}-${SCOPE_HASH}\` (spec + scope.yaml hash)"
 
       - name: Backend auth — diagnose
         run: |
@@ -330,12 +356,18 @@ jobs:
         run: |
           set -uo pipefail
           set +e
+          GATE_SCOPE_ARGS=()
+          if [ -n "${APITHRESHOLD_SCOPE_PATH:-}" ]; then
+            GATE_SCOPE_ARGS=(--scope-path "${APITHRESHOLD_SCOPE_PATH}")
+          fi
           if [ "${APITHRESHOLD_PROGRESSIVE}" = "true" ]; then
             apithreshold gate "${APITHRESHOLD_SPEC}" \
+              "${GATE_SCOPE_ARGS[@]}" \
               --project-id "${APITHRESHOLD_PROJECT_ID}" \
               --no-persist-scope 2>&1 | tee gate_full.log
           else
             apithreshold gate "${APITHRESHOLD_SPEC}" \
+              "${GATE_SCOPE_ARGS[@]}" \
               --mode "${APITHRESHOLD_MODE}" \
               --project-id "${APITHRESHOLD_PROJECT_ID}" \
               --no-persist-scope 2>&1 | tee gate_full.log
@@ -391,6 +423,12 @@ jobs:
             echo "| | |"
             echo "|:--|:--|"
             echo "| Spec | \`${APITHRESHOLD_SPEC}\` |"
+            if [ -n "${APITHRESHOLD_SCOPE_PATH:-}" ]; then
+              echo "| Scope path | \`${APITHRESHOLD_SCOPE_PATH}\` |"
+            elif [ -n "${GATE_SCOPE_FILE:-}" ]; then
+              echo "| Scope file | \`${GATE_SCOPE_FILE}\` |"
+            fi
+            echo "| Cache scope | \`${GATE_CACHE_SCOPE}\` |"
             echo "| Mode | \`${GATE_MODE_RUN:-${GATE_MODE_DISPLAY}}\` |"
             echo "| Score / threshold | **${GATE_SCORE:-?}** / **${GATE_THRESHOLD:-?}** |"
             echo "| **1. Quality** | ${QUALITY_ROW} |"

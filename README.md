@@ -48,6 +48,7 @@ This is a **standalone git repository** you push under the **`apithreshold` org*
    |------|------|
    | **`OPENAI_API_KEY`** | Always — used by `apithreshold gate` for the LLM. |
    | **`BACKEND_GITHUB_TOKEN`** | **If `apithreshold/backend` is private** (default for many orgs). CI cannot `git clone` a private repo without credentials. |
+   | **`APITHRESHOLD_LICENSE`** | **Optional** — Ed25519 JWT for **Starter+** tiers. **Omit** on free tier (max **learning** / **warning** modes only). Required if you want **enforcing** / **strict** in CI. |
 
    **PAT for `BACKEND_GITHUB_TOKEN`:** GitHub → **Settings** (your account or a bot user) → **Developer settings** → **Personal access tokens**. Create a **fine-grained** token with **Contents: Read** on repository **`apithreshold/backend`** only (minimum scope). Paste the token as secret **`BACKEND_GITHUB_TOKEN`** on **`apithreshold-action-demo`**. If your org uses **SAML SSO**, authorize the token for the org.
 
@@ -105,11 +106,13 @@ Use this when you want a **clear narrative** for an audience: policy gate → op
 
 1. **Actions** → **APIThreshold gate** → **Run workflow**.
 2. **Progressive story:** choose **`openapi.yaml`** and mode **`auto`**, then **Run workflow**. Open **Summary** → **Progressive gate** table + **Progressive gate status** (stored mode, history count, last score). Re-run on **`main`** over time to show cache-backed mode advance (or explain the 14-day / 7-day rules from the Summary).
-3. **Happy path (green):** **`demo/openapi-ci-happy-path.yaml`** + **`enforcing`**. Demo-only **`threshold_enforcing: 15%`** is seeded (not used on progressive **`main`** runs).
+3. **Happy path (green):** **`demo/openapi-ci-happy-path.yaml`** + **`enforcing`** (or **`warning`**). **Without** **`APITHRESHOLD_LICENSE`**, the workflow auto-uses **warning** + demo **`threshold_warning: 15%`** (free tier blocks **enforcing**). **With** a Starter+ license secret, **enforcing** + **`threshold_enforcing: 15%`** is seeded.
 4. **Failure path (red + recommendations):** **`demo/openapi-demo-fail.yaml`** + **`enforcing`** → **explain/report** + **apithreshold-gate-recommendations**.
 5. **Summary** + job log steps + **Artifacts** (`apithreshold-gate-full-log`, **`apithreshold-gate-state`**, recommendations on failure).
 
-**Pass path (CI/CD happy path):** **Run workflow** with **`demo/openapi-ci-happy-path.yaml`** and **`enforcing`**. This repo’s workflow writes a **demo-only** gate config (`threshold_enforcing` **15%**) before `apithreshold gate` when that spec is selected, so **enforcing** completes green while the log still shows the model’s real score (often far below product **95%**). That override exists because APIThreshold adds a mandatory **auth** overlay hint even for tiny public specs, and bearer-gated demos often score very low when generated tests omit exhaustive **401/403** proofs. For the **real** product bar on your own APIs, rely on the default **95%** enforcing threshold (no seed). For a minimal in-repo spec without the seed, use **`openapi.yaml`** on **push/PR** defaults. **Fork pull requests** do not get the sticky PR comment (GitHub token cannot update upstream PR threads); use same-repo branches for that part of the demo.
+**Pass path (CI/CD happy path):** **Run workflow** with **`demo/openapi-ci-happy-path.yaml`**. Pick **`enforcing`** if you have **`APITHRESHOLD_LICENSE`** in secrets; otherwise pick **`warning`** (or **`enforcing`** — the workflow will downgrade to **warning** on free tier). The job failed with **`LICENSE_ERROR`** when **enforcing** is requested without a license — that is not a score problem. Demo seeds a **15%** threshold (warning or enforcing) so the gate **meets bar** in logs while the real LLM score may be much lower than product **95%**.
+
+**Fork pull requests** do not get the sticky PR comment (GitHub token cannot update upstream PR threads); use same-repo branches for that part of the demo.
 
 ## Install source (PyPI vs backend repo)
 

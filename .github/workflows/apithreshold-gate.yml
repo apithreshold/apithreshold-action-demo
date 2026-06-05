@@ -207,8 +207,8 @@ jobs:
           restore-keys: |
             apithreshold-gate-${{ github.repository }}-
 
-      # Bearer-gated CRUD + default auth overlay → LLM scores often << 95% enforcing.
-      # Seed a demo-only threshold for dispatch demos only (do not overwrite progressive main state).
+      # Happy-path demo: lower threshold so LLM variance still "meets bar" in logs.
+      # Free tier allows learning/warning only — without APITHRESHOLD_LICENSE use warning + 15%.
       - name: Demo-only gate threshold (happy-path spec)
         if: >-
           env.APITHRESHOLD_SPEC == 'demo/openapi-ci-happy-path.yaml' &&
@@ -216,6 +216,7 @@ jobs:
         shell: bash
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
+          HAS_LICENSE: ${{ secrets.APITHRESHOLD_LICENSE != '' && 'true' || 'false' }}
         run: |
           set -euo pipefail
           python3 <<'PY'
@@ -225,25 +226,54 @@ jobs:
           from pathlib import Path
 
           repo = os.environ["GITHUB_REPOSITORY"]
+          has_license = os.environ.get("HAS_LICENSE") == "true"
           state_dir = Path.home() / ".apithreshold" / "state" / repo
           state_dir.mkdir(parents=True, exist_ok=True)
           path = state_dir / "gate_state.json"
+          if has_license:
+              mode = "enforcing"
+              config = {"threshold_enforcing": 15.0}
+              label = "threshold_enforcing=15.0 (Starter+ license)"
+          else:
+              mode = "warning"
+              config = {"threshold_warning": 15.0}
+              label = "threshold_warning=15.0 (free tier — enforcing needs APITHRESHOLD_LICENSE)"
           state = {
               "project_id": repo,
-              "current_mode": "enforcing",
+              "current_mode": mode,
               "created_at": datetime.now(timezone.utc).isoformat(),
-              "config": {"threshold_enforcing": 15.0},
+              "config": config,
               "latest_report": None,
               "history": [],
           }
           path.write_text(json.dumps(state, indent=2))
-          print(f"Seeded gate_state.json with threshold_enforcing=15.0 for {path}")
+          print(f"Seeded gate_state.json ({label}) for {path}")
           PY
+
+      - name: Happy-path — align mode with license tier
+        if: env.APITHRESHOLD_SPEC == 'demo/openapi-ci-happy-path.yaml'
+        shell: bash
+        env:
+          HAS_LICENSE: ${{ secrets.APITHRESHOLD_LICENSE != '' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "${HAS_LICENSE}" = "true" ]; then
+            echo "APITHRESHOLD_LICENSE present — enforcing/strict dispatch modes allowed."
+            exit 0
+          fi
+          case "${APITHRESHOLD_MODE}" in
+            enforcing|strict)
+              echo "APITHRESHOLD_MODE=warning" >> "${GITHUB_ENV}"
+              echo "GATE_MODE_DISPLAY=warning (happy-path, free tier)" >> "${GITHUB_ENV}"
+              echo "::notice title=Happy-path demo (free tier)::enforcing requires APITHRESHOLD_LICENSE (Starter+). Using **warning** with demo threshold_warning=15% so the job can pass."
+              ;;
+          esac
 
       - name: Run APIThreshold gate
         shell: bash
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          APITHRESHOLD_LICENSE: ${{ secrets.APITHRESHOLD_LICENSE }}
         run: |
           set -uo pipefail
           set +e
@@ -372,6 +402,7 @@ jobs:
         shell: bash
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          APITHRESHOLD_LICENSE: ${{ secrets.APITHRESHOLD_LICENSE }}
           APITHRESHOLD_SPEC: ${{ env.APITHRESHOLD_SPEC }}
         run: |
           set -euo pipefail

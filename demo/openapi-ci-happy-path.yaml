@@ -6,8 +6,9 @@
 # minimal surface keeps risk + generation + scoring fast and stable.
 #
 # The GitHub Actions workflow seeds a *demo-only* lowering of
-# `threshold_enforcing` for this file so "enforcing" completes green in CI
-# despite LLM variance. Production gates should use the product default (95%).
+# `threshold_warning` (free tier) or `threshold_enforcing` (with license)
+# for this file so the happy-path job completes green despite LLM variance.
+# Production gates should use the product default (95% enforcing).
 openapi: 3.0.3
 info:
   title: CI Happy-Path Demo API

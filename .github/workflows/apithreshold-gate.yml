@@ -123,6 +123,10 @@ jobs:
             echo "GATE_MODE_DISPLAY=${MODE}" >> "${GITHUB_ENV}"
           fi
 
+          # Isolate Actions cache per spec so demo thresholds (e.g. happy-path 15%) do not leak.
+          SPEC_SLUG="$(echo "${APITHRESHOLD_SPEC}" | tr '/' '-' | tr -cd '[:alnum:]._-')"
+          echo "GATE_CACHE_SCOPE=${SPEC_SLUG}" >> "${GITHUB_ENV}"
+
       - name: Backend auth — diagnose
         run: |
           set -euo pipefail
@@ -206,11 +210,11 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ~/.apithreshold/state
-          # Unique key per run so save can succeed; restore-keys picks latest for this branch.
-          key: apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}-${{ github.run_id }}
+          # Per spec + per run so save succeeds and demo specs do not share thresholds.
+          key: apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}-${{ env.GATE_CACHE_SCOPE }}-${{ github.run_id }}
           restore-keys: |
+            apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}-${{ env.GATE_CACHE_SCOPE }}-
             apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}-
-            apithreshold-gate-${{ github.repository }}-
 
       # Happy-path demo: lower threshold so LLM variance still "meets bar" in logs.
       # Free tier allows learning/warning only — without APITHRESHOLD_LICENSE use warning + 15%.
@@ -243,6 +247,50 @@ jobs:
               mode = "warning"
               config = {"threshold_warning": 15.0}
               label = "threshold_warning=15.0 (free tier — enforcing needs APITHRESHOLD_LICENSE)"
+          state = {
+              "project_id": repo,
+              "current_mode": mode,
+              "created_at": datetime.now(timezone.utc).isoformat(),
+              "config": config,
+              "latest_report": None,
+              "history": [],
+          }
+          path.write_text(json.dumps(state, indent=2))
+          print(f"Seeded gate_state.json ({label}) for {path}")
+          PY
+
+      # Fail-path demo: product enforcing bar (95%) so thin spec scores below threshold.
+      - name: Demo-only gate threshold (fail-path spec)
+        if: >-
+          env.APITHRESHOLD_SPEC == 'demo/openapi-demo-fail.yaml' &&
+          steps.policy.outputs.progressive != 'true'
+        shell: bash
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GATE_MODE: ${{ env.APITHRESHOLD_MODE }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          mode = os.environ.get("GATE_MODE") or "enforcing"
+          state_dir = Path.home() / ".apithreshold" / "state" / repo
+          state_dir.mkdir(parents=True, exist_ok=True)
+          path = state_dir / "gate_state.json"
+          config = {}
+          if mode in ("enforcing", "strict"):
+              config["threshold_enforcing"] = 95.0
+              label = "threshold_enforcing=95.0 (fail-path demo)"
+          elif mode == "warning":
+              config["threshold_warning"] = 80.0
+              label = "threshold_warning=80.0 (fail-path demo)"
+          else:
+              config["threshold_learning"] = 50.0
+              label = "threshold_learning=50.0 (fail-path demo)"
           state = {
               "project_id": repo,
               "current_mode": mode,
@@ -598,7 +646,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ~/.apithreshold/state
-          key: apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}-${{ github.run_id }}
+          key: apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}-${{ env.GATE_CACHE_SCOPE }}-${{ github.run_id }}
 
       - name: Upload full apithreshold gate log (verbatim)
         if: always()

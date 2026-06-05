@@ -76,8 +76,8 @@ APIThreshold can **tighten the bar over time** instead of flipping straight to a
 
 1. **`actions/cache`** restores `~/.apithreshold/state/<project-id>/gate_state.json` before `apithreshold gate`.
 2. On **trusted** runs, **`--mode` is omitted** on `main` / branch push so the CLI calls **`get_current_mode()`** and can auto-advance.
-3. At job end, **`actions/cache/save`** writes updated state under a **per-run** key  
-   `apithreshold-gate-<repo>-<branch>-<run_id>`; restore uses **restore-keys** to load the latest entry for that branch (GitHub does not allow overwriting an existing cache key).
+3. At job end, **`actions/cache/save`** writes updated state under a **per-spec, per-run** key  
+   `apithreshold-gate-<repo>-<branch>-<spec-slug>-<run_id>`; restore uses **restore-keys** to load the latest entry for that branch **and spec** (GitHub does not allow overwriting an existing cache key; demo specs do not share thresholds).
 4. Artifact **`apithreshold-gate-state`** (90-day retention) gives auditors a per-run snapshot.
 
 **Policy matrix (this workflow):**
@@ -109,7 +109,7 @@ Use this when you want a **clear narrative** for an audience: policy gate → op
 1. **Actions** → **APIThreshold gate** → **Run workflow**.
 2. **Progressive story:** choose **`openapi.yaml`** and mode **`auto`**, then **Run workflow**. Open **Summary** → **Progressive gate** table + **Progressive gate status** (stored mode, history count, last score). Re-run on **`main`** over time to show cache-backed mode advance (or explain the 14-day / 7-day rules from the Summary).
 3. **Happy path (green):** **`demo/openapi-ci-happy-path.yaml`** + **`enforcing`** (or **`warning`**). **Without** **`APITHRESHOLD_LICENSE`**, the workflow auto-uses **warning** + demo **`threshold_warning: 15%`** (free tier blocks **enforcing**). **With** a Starter+ license secret, **enforcing** + **`threshold_enforcing: 15%`** is seeded.
-4. **Failure path (red + recommendations):** **`demo/openapi-demo-fail.yaml`** + **`enforcing`** → **explain/report** + **apithreshold-gate-recommendations**.
+4. **Failure path (red + recommendations):** **`demo/openapi-demo-fail.yaml`** + **`enforcing`** → seeds **95%** enforcing threshold (not the happy-path **15%**); expect **red CI** + **explain/report** + **apithreshold-gate-recommendations**.
 5. **Summary** + job log steps + **Artifacts** (`apithreshold-gate-full-log`, **`apithreshold-gate-state`**, recommendations on failure).
 
 **Pass path (CI/CD happy path):** **Run workflow** with **`demo/openapi-ci-happy-path.yaml`**. Pick **`enforcing`** if you have **`APITHRESHOLD_LICENSE`** in secrets; otherwise pick **`warning`** (or **`enforcing`** — the workflow will downgrade to **warning** on free tier). The job failed with **`LICENSE_ERROR`** when **enforcing** is requested without a license — that is not a score problem. Demo seeds a **15%** threshold (warning or enforcing) so the gate **meets bar** in logs while the real LLM score may be much lower than product **95%**.

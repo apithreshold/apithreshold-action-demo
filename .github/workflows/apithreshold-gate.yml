@@ -53,7 +53,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout (this repo)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Resolve gate policy (enterprise progressive)
         id: policy
@@ -224,7 +224,7 @@ jobs:
           fi
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -241,13 +241,13 @@ jobs:
 
       - name: Restore APIThreshold gate state (Actions cache)
         if: steps.policy.outputs.use_cache == 'true'
-        uses: actions/cache@v4
+        id: gate-state-cache-restore
+        uses: actions/cache/restore@v5
         with:
           path: ~/.apithreshold/state
           key: apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}
           restore-keys: |
             apithreshold-gate-${{ github.repository }}-
-          save-always: true
 
       # Bearer-gated CRUD + default auth overlay → LLM scores often << 95% enforcing.
       # Seed a demo-only threshold for dispatch demos only (do not overwrite progressive main state).
@@ -550,10 +550,18 @@ jobs:
             cp "${SRC}" _gate_state_export/gate_state.json
           fi
 
+      - name: Save APIThreshold gate state (Actions cache)
+        if: always() && steps.policy.outputs.use_cache == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.apithreshold/state
+          key: ${{ steps.gate-state-cache-restore.outputs.cache-primary-key }}
+
       - name: Upload full apithreshold gate log (verbatim)
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: apithreshold-gate-full-log
           path: gate_full.log
@@ -563,7 +571,7 @@ jobs:
       - name: Upload gate state snapshot (progressive / audit)
         if: always() && steps.policy.outputs.use_cache == 'true'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: apithreshold-gate-state
           path: _gate_state_export/gate_state.json
@@ -573,7 +581,7 @@ jobs:
       - name: Upload gate recommendation logs
         if: failure()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: apithreshold-gate-recommendations
           path: gate_recommendations.log
@@ -582,7 +590,7 @@ jobs:
 
       - name: PR comment — APIThreshold result (sticky, same-repo PRs)
         if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');

@@ -120,48 +120,6 @@ jobs:
             echo "GATE_MODE_DISPLAY=${MODE}" >> "${GITHUB_ENV}"
           fi
 
-      - name: Summary — run context (for presenters)
-        run: |
-          CACHE_NOTE="not used"
-          if [ "${APITHRESHOLD_USE_CACHE}" = "true" ]; then
-            CACHE_NOTE="\`apithreshold-gate-${GITHUB_REPOSITORY}-${GITHUB_REF_NAME}\` → \`~/.apithreshold/state/\`"
-          fi
-          {
-            echo "## APIThreshold gate — what this run is doing"
-            echo ""
-            echo "This job **parses your OpenAPI**, runs the APIThreshold pipeline (**risk → generated tests → quality score**), then applies a **quality bar** using the policy below."
-            echo ""
-            echo "| | |"
-            echo "|:--|:--|"
-            echo "| **Policy** | ${GATE_POLICY_LABEL} |"
-            echo "| **Effective mode** | \`${GATE_MODE_DISPLAY}\` |"
-            echo "| **Spec** | \`${APITHRESHOLD_SPEC}\` |"
-            echo "| **Project ID** | \`${APITHRESHOLD_PROJECT_ID}\` |"
-            echo "| **State cache** | ${CACHE_NOTE} |"
-            echo "| **Trigger** | \`${GITHUB_EVENT_NAME}\` |"
-            echo "| **Ref** | \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA:0:7}\` |"
-            echo "| **Workflow run** | [Open run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) |"
-            echo ""
-            echo "### Progressive gate (enterprise story)"
-            echo ""
-            echo "| Phase | Default threshold | Blocks CI? | How you advance |"
-            echo "|-------|-------------------|------------|-----------------|"
-            echo "| **learning** | 50% | No | Start here on first cached run |"
-            echo "| **warning** | 80% | No | After **14 days** on this cache key (or config \`learning_days\`) |"
-            echo "| **enforcing** | 95% | **Yes** | After **7** stable warning days ≥ **85%** daily best score |"
-            echo ""
-            echo "Persistence is **Actions cache** on \`~/.apithreshold/state/\` (not Git). **main** uses progressive auto-advance; **same-repo PRs** use **warning** (signal without blocking); **fork PRs** skip shared cache."
-            echo ""
-            echo "### Where to look (60-second tour)"
-            echo ""
-            echo "1. **This Summary** — policy table above, then **Progressive gate status** after the gate step, gate headline, **LLM recommendations** on failure."
-            echo "2. **Steps** — **Restore APIThreshold gate state**, **Run APIThreshold gate**, **Gate failure recommendations**."
-            echo "3. **Artifacts** — **apithreshold-gate-full-log**; **apithreshold-gate-state** (trusted runs); **apithreshold-gate-recommendations** on failure."
-            echo ""
-            echo "_**workflow_dispatch** demos: **auto** = progressive; **happy path** = \`demo/openapi-ci-happy-path.yaml\` + **enforcing**; **failure path** = \`demo/openapi-demo-fail.yaml\` + **enforcing**._"
-            echo ""
-          } >> "${GITHUB_STEP_SUMMARY}"
-
       - name: Backend auth — diagnose
         run: |
           set -euo pipefail
@@ -301,154 +259,103 @@ jobs:
           fi
           gate_rc=${PIPESTATUS[0]}
           set -e
-          # Verbatim capture: same bytes as the Actions step log (tee). ~1MB cap for in-Summary embed (GitHub limit).
-          LOG_BYTES="$(wc -c < gate_full.log | awk '{print $1}')"
-          SUMMARY_MAX=950000
-          append_verbatim_log() {
-            echo "### Verbatim gate output (same as workflow log + artifact)"
-            echo ""
-            echo "File size: **${LOG_BYTES}** bytes. Artifact **apithreshold-gate-full-log** always contains the full file. You can also download the whole job log from the run (**⋯** → **Download log archive**)."
-            echo ""
-            if [ "${LOG_BYTES}" -le "${SUMMARY_MAX}" ] 2>/dev/null; then
-              echo "Full log embedded below (under Summary size limit)."
-              echo ""
-              echo '```text'
-              cat gate_full.log
-              echo '```'
-            else
-              echo "Log exceeds Summary safe size; **artifact** is the complete verbatim capture. Last **800** lines below for quick scan."
-              echo ""
-              echo '```text'
-              tail -n 800 gate_full.log
-              echo '```'
-            fi
+
+          parse_gate_line() {
+            local field="$1"
+            grep -E "^${field}:" gate_full.log 2>/dev/null | tail -1 | sed -E "s/^${field}:[[:space:]]*//" || true
           }
+          GATE_SCORE="$(parse_gate_line Score)"
+          GATE_THRESHOLD="$(parse_gate_line Threshold)"
+          GATE_MODE_RUN="$(parse_gate_line Mode)"
+          GATE_RESULT="$(parse_gate_line Result)"
+          LOG_BYTES="$(wc -c < gate_full.log | awk '{print $1}')"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
           if [ "$gate_rc" -ne 0 ]; then
-            GATE_SCORELINE="$(grep -oE 'score [0-9.]+ < threshold [0-9.]+' gate_full.log | tail -1 || true)"
-            GATE_PCTLINE="$(grep -oE 'Score [0-9.]+% below [a-z]+ threshold [0-9.]+%' gate_full.log | tail -1 || true)"
-            GATE_HEADLINE="${GATE_SCORELINE:-(score line not parsed)}${GATE_PCTLINE:+ — }${GATE_PCTLINE}"
-            {
-              echo "### APIThreshold gate failed"
-              echo ""
-              echo "**${GATE_HEADLINE}**"
-              echo ""
-              echo "- Exit code: **${gate_rc}** · Mode: **\`${GATE_MODE_DISPLAY}\`** · Spec: **\`${APITHRESHOLD_SPEC}\`**"
-              echo ""
-              echo "#### Why the log looks noisy"
-              echo "Lines starting with \`DEBUG\` are diagnostic; the **Gate Blocked** / **Blocking Issues** panels above them are what failed the run."
-              echo ""
-              echo "#### What to do next"
-              echo ""
-              echo "1. **LLM recommendations:** open **Gate failure recommendations (explain + report)** in this job, download artifact **apithreshold-gate-recommendations**, and check Summary section **LLM recommendations (after failure)**."
-              echo "2. In this job log, search for **Gate Blocked** and **Blocking Issues** (and agent names: RiskAssessor, QualityScorer, TestGenerator) for spec-specific hints."
-              echo "3. **Improve \`${APITHRESHOLD_SPEC}\`**: schemas for bodies, documented 4xx/5xx error responses, \`securitySchemes\` / \`security\`, summaries, examples, tags, pagination."
-              echo "4. **Reproduce locally:**"
-              echo "   \`\`\`bash"
-              if [ "${APITHRESHOLD_PROGRESSIVE}" = "true" ]; then
-                echo "   apithreshold gate ${APITHRESHOLD_SPEC} --project-id ${APITHRESHOLD_PROJECT_ID}"
-              else
-                echo "   apithreshold gate ${APITHRESHOLD_SPEC} --mode ${APITHRESHOLD_MODE} --project-id ${APITHRESHOLD_PROJECT_ID}"
-              fi
-              echo "   \`\`\`"
-              echo "5. **Policy:** on **main**, progressive mode advances automatically when cache + stable scores allow; PRs use **warning** (non-blocking). Use **workflow_dispatch** with explicit **learning** for a non-blocking run."
-              echo ""
-              append_verbatim_log
-              echo ""
-              echo "---"
-              echo "_Summary from \`.github/workflows/apithreshold-gate.yml\`._"
-            } >> "${GITHUB_STEP_SUMMARY}"
-            echo "::error title=APIThreshold gate (${GATE_MODE_DISPLAY})::${GATE_HEADLINE}. Summary embeds full log if under size cap; otherwise use artifact + Download log archive. Expand **Run APIThreshold gate** for live step log."
-            if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-              RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-              {
-                echo "### APIThreshold gate — blocked"
-                echo ""
-                echo "**${GATE_HEADLINE}**"
-                echo ""
-                echo "| Field | Value |"
-                echo "|------|-------|"
-                echo "| Policy | ${GATE_POLICY_LABEL} |"
-                echo "| Mode | \`${GATE_MODE_DISPLAY}\` |"
-                echo "| Spec | \`${APITHRESHOLD_SPEC}\` |"
-                echo "| Run | [Open workflow run](${RUN_URL}) — **Summary** has progressive status, checklist, and LLM recommendations |"
-                echo ""
-                echo "**Next steps for reviewers:** expand **Gate failure recommendations (explain + report)** in the job log; download **apithreshold-gate-recommendations** and **apithreshold-gate-full-log** from **Artifacts**."
-              } > gate_pr_comment.md
-            fi
-            exit "$gate_rc"
+            SUMMARY_HEADLINE="**CI failed** — score **${GATE_SCORE:-?}** is below **${GATE_MODE_RUN:-${GATE_MODE_DISPLAY}}** threshold **${GATE_THRESHOLD:-?}** (job exit **${gate_rc}**)."
+            CI_ROW="**Failed** (blocking mode)"
+            GATE_ANNOTATION="${GATE_SCORE:-?} below ${GATE_THRESHOLD:-?} (${GATE_MODE_RUN:-mode}) — CI blocked"
+          elif echo "${GATE_RESULT}" | grep -qi 'BLOCKED'; then
+            SUMMARY_HEADLINE="**Below threshold** — score **${GATE_SCORE:-?}** is under **${GATE_MODE_RUN:-?}** bar **${GATE_THRESHOLD:-?}**. **CI still passes** (learning/warning never fail the job)."
+            CI_ROW="**Passed** (non-blocking — only enforcing/strict fail CI)"
+            GATE_ANNOTATION="${GATE_SCORE:-?} below ${GATE_THRESHOLD:-?} (${GATE_MODE_RUN:-mode}) — CI not blocked"
+          else
+            SUMMARY_HEADLINE="**Passed** — score **${GATE_SCORE:-?}** meets **${GATE_MODE_RUN:-?}** threshold **${GATE_THRESHOLD:-?}**."
+            CI_ROW="**Passed**"
+            GATE_ANNOTATION="${GATE_SCORE:-?} meets threshold (${GATE_MODE_RUN:-mode})"
           fi
+
+          STATE="${HOME}/.apithreshold/state/${APITHRESHOLD_PROJECT_ID}/gate_state.json"
+          HIST_COUNT="—"
+          STORED_MODE="—"
+          if [[ -f "${STATE}" ]]; then
+            read -r HIST_COUNT STORED_MODE < <(python3 -c "
+          import json, pathlib, os
+          p = pathlib.Path.home() / '.apithreshold/state' / os.environ['APITHRESHOLD_PROJECT_ID'] / 'gate_state.json'
+          d = json.loads(p.read_text())
+          print(len(d.get('history') or []), d.get('current_mode', '—'))
+          ")
+          fi
+
           {
-            echo "### APIThreshold gate passed"
+            echo "## APIThreshold gate"
             echo ""
-            echo "Mode **\`${GATE_MODE_DISPLAY}\`** on **\`${APITHRESHOLD_SPEC}\`**."
+            echo "${SUMMARY_HEADLINE}"
             echo ""
-            echo "Complete **${LOG_BYTES}**-byte gate output (same bytes as the step log):"
+            echo "| | |"
+            echo "|:--|:--|"
+            echo "| Spec | \`${APITHRESHOLD_SPEC}\` |"
+            echo "| Gate mode | \`${GATE_MODE_RUN:-${GATE_MODE_DISPLAY}}\` |"
+            echo "| Score / threshold | **${GATE_SCORE:-?}** / **${GATE_THRESHOLD:-?}** |"
+            echo "| Gate result | \`${GATE_RESULT:-?}\` |"
+            echo "| CI job | ${CI_ROW} |"
+            echo "| Progressive | stored mode \`${STORED_MODE}\` · **${HIST_COUNT}** cached runs on \`${GITHUB_REF_NAME}\` |"
             echo ""
-            echo "1. Artifact **apithreshold-gate-full-log** (this run, verbatim \`gate_full.log\`)."
-            echo "2. Expand **Run APIThreshold gate** above for the live log stream."
-            echo "3. Run **⋯** (top right of the workflow run) → **Download log archive** for all steps as files."
+            if [ "${APITHRESHOLD_PROGRESSIVE}" = "true" ] || [ "${GATE_MODE_RUN}" = "learning" ] || [ "${GATE_MODE_RUN}" = "warning" ]; then
+              echo "_Progressive ramp: **learning** 50% → **warning** 80% → **enforcing** 95% (only enforcing blocks CI). State in Actions cache, not Git._"
+              echo ""
+            fi
+            if [ "$gate_rc" -ne 0 ]; then
+              echo "**Next:** step **Gate failure recommendations** · artifact **apithreshold-gate-recommendations**"
+              echo ""
+            fi
+            echo "<details><summary>Gate log (${LOG_BYTES} bytes — also in artifact <code>apithreshold-gate-full-log</code>)</summary>"
+            echo ""
+            echo '```text'
+            if [ "${LOG_BYTES}" -le 120000 ] 2>/dev/null; then
+              cat gate_full.log
+            else
+              tail -n 120 gate_full.log
+              echo ""
+              echo "... (truncated — download artifact for full log)"
+            fi
+            echo '```'
+            echo ""
+            echo "</details>"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [ "$gate_rc" -ne 0 ]; then
+            echo "::error title=APIThreshold gate::${GATE_ANNOTATION}"
+          elif echo "${GATE_RESULT}" | grep -qi 'BLOCKED'; then
+            echo "::notice title=APIThreshold gate (non-blocking)::${GATE_ANNOTATION}"
+          fi
+
           if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             {
-              echo "### APIThreshold gate — passed"
+              echo "### APIThreshold gate"
               echo ""
-              echo "Mode **\`${GATE_MODE_DISPLAY}\`** on spec **\`${APITHRESHOLD_SPEC}\`**."
+              echo "${SUMMARY_HEADLINE}"
               echo ""
-              echo "| Field | Value |"
-              echo "|------|-------|"
-              echo "| Policy | ${GATE_POLICY_LABEL} |"
-              echo "| Mode | \`${GATE_MODE_DISPLAY}\` |"
-              echo "| Run | [Open workflow run](${RUN_URL}) — **Summary** has progressive status + verbatim log; artifacts include **apithreshold-gate-state** |"
+              echo "| Spec | \`${APITHRESHOLD_SPEC}\` |"
+              echo "| Score / threshold | **${GATE_SCORE:-?}** / **${GATE_THRESHOLD:-?}** |"
+              echo "| CI job | ${CI_ROW} |"
+              echo "| [Run](${RUN_URL}) | Summary + artifacts |"
             } > gate_pr_comment.md
           fi
 
-      - name: Summary — progressive gate status
-        if: always()
-        continue-on-error: true
-        shell: bash
-        run: |
-          STATE="${HOME}/.apithreshold/state/${APITHRESHOLD_PROJECT_ID}/gate_state.json"
-          {
-            echo "### Progressive gate status (from persisted state)"
-            echo ""
-          } >> "${GITHUB_STEP_SUMMARY}"
-          if [[ ! -f "${STATE}" ]]; then
-            {
-              echo "No \`gate_state.json\` at \`${STATE}\` (cache miss or first run on this key)."
-              echo ""
-            } >> "${GITHUB_STEP_SUMMARY}"
-            exit 0
+          if [ "$gate_rc" -ne 0 ]; then
+            exit "$gate_rc"
           fi
-          python3 <<'PY' >> "${GITHUB_STEP_SUMMARY}"
-          import json
-          import os
-          from pathlib import Path
-
-          repo = os.environ["APITHRESHOLD_PROJECT_ID"]
-          path = Path.home() / ".apithreshold" / "state" / repo / "gate_state.json"
-          data = json.loads(path.read_text())
-          mode = data.get("current_mode", "unknown")
-          created = data.get("created_at", "—")
-          hist = data.get("history") or []
-          last = hist[-1] if hist else {}
-          cfg = data.get("config") or {}
-
-          print(f"| Field | Value |")
-          print(f"|-------|-------|")
-          print(f"| **Stored mode** | `{mode}` |")
-          print(f"| **Timeline started** | `{created}` |")
-          print(f"| **Runs in history** | {len(hist)} |")
-          if last:
-              print(f"| **Last run** | score **{last.get('score', '—')}** vs threshold **{last.get('threshold', '—')}** · passed **{last.get('passed')}** · mode **{last.get('mode')}** |")
-          if cfg:
-              overrides = ", ".join(f"{k}={v}" for k, v in cfg.items())
-              print(f"| **Config overrides** | {overrides} |")
-          print("")
-          print("**Auto-advance rules (defaults):** learning → warning after `learning_days` (14); warning → enforcing after `warning_stable_days` (7) with daily best ≥ `warning_stable_score_min` (85).")
-          print("")
-          print(f"State file (cached between trusted runs): `~/.apithreshold/state/{repo}/gate_state.json`")
-          PY
 
       # Gate stdout is Rich panels + DEBUG only; full remediation needs follow-up LLM calls.
       - name: Gate failure recommendations (explain + report)
@@ -515,9 +422,7 @@ jobs:
 
           {
             echo ""
-            echo "### LLM recommendations (after failure)"
-            echo ""
-            echo "From \`apithreshold explain\` plus \`apithreshold report\` when the latest quality report was available. Artifact **apithreshold-gate-recommendations** has the full text."
+            echo "### Fix suggestions (explain + report)"
             echo ""
             echo '```text'
           } >> "${GITHUB_STEP_SUMMARY}"

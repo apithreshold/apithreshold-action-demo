@@ -118,15 +118,21 @@ For large APIs or **multi-spec** `specs[]` scope files, commit **`.apithreshold/
 | `services/payments/.apithreshold/scope.yaml` | `services/payments` | `api-openapi.yaml-<scope-hash>` |
 | Multi-spec `specs[]` in one scope file | *(empty or service dir)* | Hash covers full `specs[]` + selected endpoints |
 
-## Live demo (about 5 minutes)
+## Live demo — three runs (~5 minutes)
 
-Use this when you want a **clear narrative** for an audience: policy gate → optional deep remediation → artifacts (and a **sticky PR comment** on same-repo PRs).
+**Actions** → **APIThreshold gate** → **Run workflow**. Use **`demo_scenario`** presets (ignore `spec_path` / `mode` when a preset is selected). Run in this order:
 
-1. **Actions** → **APIThreshold gate** → **Run workflow**.
-2. **Progressive story:** choose **`openapi.yaml`** and mode **`auto`**, then **Run workflow**. Open **Summary** → **Progressive gate** table + **Progressive gate status** (stored mode, history count, last score). Re-run on **`main`** over time to show cache-backed mode advance (or explain the 14-day / 7-day rules from the Summary).
-3. **Happy path (green):** **`demo/openapi-ci-happy-path.yaml`** + **`enforcing`** (or **`warning`**). **Without** **`APITHRESHOLD_LICENSE`**, the workflow auto-uses **warning** + demo **`threshold_warning: 15%`** (free tier blocks **enforcing**). **With** a Starter+ license secret, **enforcing** + **`threshold_enforcing: 15%`** is seeded.
-4. **Failure path (red + recommendations):** **`demo/openapi-demo-fail.yaml`** + **`enforcing`** → seeds **95%** enforcing threshold (not the happy-path **15%**); expect **red CI** + **explain/report** + **apithreshold-gate-recommendations**.
-5. **Summary** + job log steps + **Artifacts** (`apithreshold-gate-full-log`, **`apithreshold-gate-state`**, recommendations on failure).
+| Run | `demo_scenario` | Spec | Mode | Expected outcome |
+|-----|-----------------|------|------|------------------|
+| **1** | **`demo-1-progressive-openapi`** | `openapi.yaml` | auto (progressive) | **Green CI** · mode **learning** · threshold **50%** · score often **BLOCKED** in logs (observe-only) |
+| **2** | **`demo-2-fail-enforcing`** | `demo/openapi-demo-fail.yaml` | enforcing | **Red CI** · threshold **95%** · **explain/report** + artifact **`apithreshold-gate-recommendations`** |
+| **3** | **`demo-3-happy-enforcing`** | `demo/openapi-ci-happy-path.yaml` | enforcing | **Green CI** · demo threshold **15%** (needs **`APITHRESHOLD_LICENSE`** for enforcing; else workflow downgrades to **warning** + 15%) |
+
+**Presenter arc:** (1) measure without blocking → (2) enforcement fails with remediation → (3) CI/CD pass path.
+
+**Manual runs:** set **`demo_scenario`** to **`custom`**, then pick **`spec_path`** + **`mode`** yourself.
+
+**Artifacts (all runs):** `apithreshold-gate-full-log`, **`apithreshold-gate-state`**. Same-repo PRs also get a sticky PR comment.
 
 **Pass path (CI/CD happy path):** **Run workflow** with **`demo/openapi-ci-happy-path.yaml`**. Pick **`enforcing`** if you have **`APITHRESHOLD_LICENSE`** in secrets; otherwise pick **`warning`** (or **`enforcing`** — the workflow will downgrade to **warning** on free tier). The job failed with **`LICENSE_ERROR`** when **enforcing** is requested without a license — that is not a score problem. Demo seeds a **15%** threshold (warning or enforcing) so the gate **meets bar** in logs while the real LLM score may be much lower than product **95%**.
 

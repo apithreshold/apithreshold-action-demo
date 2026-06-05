@@ -7,8 +7,18 @@ on:
     branches: [main, master]
   workflow_dispatch:
     inputs:
+      demo_scenario:
+        description: "Three-run demo preset (overrides spec_path + mode). Use Custom for manual picks."
+        type: choice
+        required: true
+        default: custom
+        options:
+          - custom
+          - demo-1-progressive-openapi
+          - demo-2-fail-enforcing
+          - demo-3-happy-enforcing
       spec_path:
-        description: "OpenAPI file to gate (happy-path spec uses a demo-only enforcing threshold in CI; fail demo exercises explain/report)."
+        description: "OpenAPI file (ignored when demo_scenario is not Custom)."
         type: choice
         required: true
         default: openapi.yaml
@@ -82,17 +92,55 @@ jobs:
           MODE="enforcing"
           POLICY_LABEL="Explicit enforcing (default)"
 
+          SPEC_FOR_CACHE="${APITHRESHOLD_SPEC}"
+          DEMO_SCENARIO="${{ github.event.inputs.demo_scenario }}"
+          if [ -z "${DEMO_SCENARIO}" ]; then
+            DEMO_SCENARIO="custom"
+          fi
+          echo "GATE_DEMO_SCENARIO=${DEMO_SCENARIO}" >> "${GITHUB_ENV}"
+
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            DISPATCH_MODE="${{ github.event.inputs.mode }}"
-            if [ "${DISPATCH_MODE}" = "auto" ]; then
-              PROGRESSIVE="true"
-              USE_CACHE="true"
-              MODE=""
-              POLICY_LABEL="Progressive (dispatch: auto — cache + omit --mode)"
-            else
-              MODE="${DISPATCH_MODE}"
-              USE_CACHE="true"
-              POLICY_LABEL="Explicit ${DISPATCH_MODE} (dispatch)"
+            case "${DEMO_SCENARIO}" in
+              demo-1-progressive-openapi)
+                SPEC_FOR_CACHE="openapi.yaml"
+                echo "APITHRESHOLD_SPEC=openapi.yaml" >> "${GITHUB_ENV}"
+                PROGRESSIVE="true"
+                USE_CACHE="true"
+                MODE=""
+                POLICY_LABEL="Demo 1 — progressive openapi.yaml (auto · learning 50%)"
+                ;;
+              demo-2-fail-enforcing)
+                SPEC_FOR_CACHE="demo/openapi-demo-fail.yaml"
+                echo "APITHRESHOLD_SPEC=demo/openapi-demo-fail.yaml" >> "${GITHUB_ENV}"
+                PROGRESSIVE="false"
+                USE_CACHE="true"
+                MODE="enforcing"
+                POLICY_LABEL="Demo 2 — fail spec + enforcing 95% (red CI + recommendations)"
+                ;;
+              demo-3-happy-enforcing)
+                SPEC_FOR_CACHE="demo/openapi-ci-happy-path.yaml"
+                echo "APITHRESHOLD_SPEC=demo/openapi-ci-happy-path.yaml" >> "${GITHUB_ENV}"
+                PROGRESSIVE="false"
+                USE_CACHE="true"
+                MODE="enforcing"
+                POLICY_LABEL="Demo 3 — happy spec + enforcing 15% (green CI)"
+                ;;
+              custom|*)
+                DISPATCH_MODE="${{ github.event.inputs.mode }}"
+                if [ "${DISPATCH_MODE}" = "auto" ]; then
+                  PROGRESSIVE="true"
+                  USE_CACHE="true"
+                  MODE=""
+                  POLICY_LABEL="Progressive (dispatch: auto — cache + omit --mode)"
+                else
+                  MODE="${DISPATCH_MODE}"
+                  USE_CACHE="true"
+                  POLICY_LABEL="Explicit ${DISPATCH_MODE} (dispatch)"
+                fi
+                ;;
+            esac
+            if [ "${DEMO_SCENARIO}" != "custom" ]; then
+              echo "::notice title=Demo scenario::${POLICY_LABEL}"
             fi
           elif [ "${IS_FORK}" = "true" ]; then
             MODE="warning"
@@ -131,7 +179,7 @@ jobs:
           fi
 
           # Cache scope: spec slug + scope.yaml hash (multi-spec / endpoint slice identity).
-          SPEC_SLUG="$(echo "${APITHRESHOLD_SPEC}" | tr '/' '-' | tr -cd '[:alnum:]._-')"
+          SPEC_SLUG="$(echo "${SPEC_FOR_CACHE}" | tr '/' '-' | tr -cd '[:alnum:]._-')"
           SCOPE_HASH="no-scope"
           SCOPE_FILE=""
           if [ -n "${APITHRESHOLD_SCOPE_PATH:-}" ]; then
@@ -240,13 +288,43 @@ jobs:
           key: apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}-${{ env.GATE_CACHE_SCOPE }}-${{ github.run_id }}
           restore-keys: |
             apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}-${{ env.GATE_CACHE_SCOPE }}-
-            apithreshold-gate-${{ github.repository }}-${{ github.ref_name }}-
+
+      # Demo 1: always start progressive openapi at learning 50% (never inherit demo 15% thresholds).
+      - name: Demo 1 — progressive baseline (openapi.yaml)
+        if: env.GATE_DEMO_SCENARIO == 'demo-1-progressive-openapi'
+        shell: bash
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          state_dir = Path.home() / ".apithreshold" / "state" / repo
+          state_dir.mkdir(parents=True, exist_ok=True)
+          path = state_dir / "gate_state.json"
+          state = {
+              "project_id": repo,
+              "current_mode": "learning",
+              "created_at": datetime.now(timezone.utc).isoformat(),
+              "config": {},
+              "latest_report": None,
+              "history": [],
+          }
+          path.write_text(json.dumps(state, indent=2))
+          print("Seeded gate_state.json (learning · default threshold 50%) for progressive demo")
+          PY
 
       # Happy-path demo: lower threshold so LLM variance still "meets bar" in logs.
       # Free tier allows learning/warning only — without APITHRESHOLD_LICENSE use warning + 15%.
       - name: Demo-only gate threshold (happy-path spec)
         if: >-
-          env.APITHRESHOLD_SPEC == 'demo/openapi-ci-happy-path.yaml' &&
+          (env.GATE_DEMO_SCENARIO == 'demo-3-happy-enforcing' ||
+           env.APITHRESHOLD_SPEC == 'demo/openapi-ci-happy-path.yaml') &&
           steps.policy.outputs.progressive != 'true'
         shell: bash
         env:
@@ -288,7 +366,8 @@ jobs:
       # Fail-path demo: product enforcing bar (95%) so thin spec scores below threshold.
       - name: Demo-only gate threshold (fail-path spec)
         if: >-
-          env.APITHRESHOLD_SPEC == 'demo/openapi-demo-fail.yaml' &&
+          (env.GATE_DEMO_SCENARIO == 'demo-2-fail-enforcing' ||
+           env.APITHRESHOLD_SPEC == 'demo/openapi-demo-fail.yaml') &&
           steps.policy.outputs.progressive != 'true'
         shell: bash
         env:
@@ -418,6 +497,10 @@ jobs:
           {
             echo "## APIThreshold gate"
             echo ""
+            if [ "${GATE_DEMO_SCENARIO:-custom}" != "custom" ]; then
+              echo "**Demo scenario:** \`${GATE_DEMO_SCENARIO}\` — ${GATE_POLICY_LABEL}"
+              echo ""
+            fi
             echo "${SUMMARY_HEADLINE}"
             echo ""
             echo "| | |"

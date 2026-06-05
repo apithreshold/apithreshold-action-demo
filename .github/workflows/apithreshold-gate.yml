@@ -421,28 +421,121 @@ jobs:
           fi
 
           {
-            echo ""
-            echo "### Fix suggestions (explain + report)"
-            echo ""
-            echo '```text'
-          } >> "${GITHUB_STEP_SUMMARY}"
-          set +o pipefail
-          {
-            cat gate_explain.log
-            echo ""
-            echo "=== apithreshold report ==="
-            cat gate_report.log
-          } | head -c 480000 >> "${GITHUB_STEP_SUMMARY}" || true
-          set -o pipefail
-          echo '```' >> "${GITHUB_STEP_SUMMARY}"
-
-          {
             echo "=== apithreshold explain gate_result.json ==="
             cat gate_explain.log
             echo ""
             echo "=== apithreshold report ==="
             cat gate_report.log
           } > gate_recommendations.log
+
+      - name: Summary — history, quality report, recommendations
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          APITHRESHOLD_PROJECT_ID: ${{ env.APITHRESHOLD_PROJECT_ID }}
+        run: |
+          python3 <<'PY' >> "${GITHUB_STEP_SUMMARY}"
+          import json
+          import os
+          from datetime import datetime
+          from pathlib import Path
+
+          repo = os.environ.get("APITHRESHOLD_PROJECT_ID", "")
+          state_path = Path.home() / ".apithreshold" / "state" / repo / "gate_state.json"
+          if not state_path.is_file():
+              print("\n### Gate history\n\n_No cached state yet._\n")
+              raise SystemExit(0)
+
+          data = json.loads(state_path.read_text())
+          hist = data.get("history") or []
+
+          print("\n### Gate history\n")
+          if not hist:
+              print("_No runs recorded yet._\n")
+          else:
+              print("| When | Mode | Score | Threshold | Passed |")
+              print("|------|------|-------|-----------|--------|")
+              for entry in hist[-8:]:
+                  ts = entry.get("timestamp", "")[:16].replace("T", " ")
+                  mode = entry.get("mode", "—")
+                  score = entry.get("score", "—")
+                  thr = entry.get("threshold", "—")
+                  passed = "yes" if entry.get("passed") else "no"
+                  print(f"| {ts} | `{mode}` | {score} | {thr} | {passed} |")
+              if len(hist) > 8:
+                  print(f"\n_Showing last 8 of **{len(hist)}** runs. Full state: artifact `apithreshold-gate-state`._\n")
+              else:
+                  print(f"\n_**{len(hist)}** run(s) on cache key for this branch._\n")
+
+          report = data.get("latest_report")
+          print("### Quality report\n")
+          if not report:
+              print("_No quality report in state for this run._\n")
+          else:
+              overall = float(report.get("overall_score", 0)) * 10
+              print("| Metric | Value |")
+              print("|--------|-------|")
+              print(f"| Overall | **{overall:.1f}%** (0–10 scale: {report.get('overall_score', '—')}) |")
+              print(f"| Coverage | {float(report.get('coverage_score', 0)) * 10:.1f}% |")
+              print(f"| Security | {float(report.get('security_score', 0)) * 10:.1f}% |")
+              print(f"| Edge cases | {float(report.get('edge_case_score', 0)) * 10:.1f}% |")
+              print(f"| Tests | {report.get('total_tests', 0)} (P0 {report.get('p0_count', 0)} · P1 {report.get('p1_count', 0)} · P2 {report.get('p2_count', 0)}) |")
+              gen = report.get("generated_at", "")
+              if gen:
+                  print(f"| Generated | `{str(gen)[:19]}` |")
+              print()
+
+              gaps = report.get("gaps") or []
+              if gaps:
+                  print("**Gaps**")
+                  for g in gaps[:8]:
+                      print(f"- {g}")
+                  if len(gaps) > 8:
+                      print(f"- _…and {len(gaps) - 8} more_")
+                  print()
+
+              feedback = report.get("endpoint_feedback") or []
+              if feedback:
+                  print("**Per-endpoint feedback**")
+                  print("| Endpoint | Status | Note |")
+                  print("|----------|--------|------|")
+                  for fb in feedback[:6]:
+                      ep = (fb.get("endpoint") or "—")[:40]
+                      st = fb.get("status", "—")
+                      ra = (fb.get("rationale") or "—").replace("|", "/")[:80]
+                      print(f"| `{ep}` | {st} | {ra} |")
+                  print()
+
+          recs = (report or {}).get("recommendations") or []
+          print("### Recommendations\n")
+          if not recs:
+              print("_No recommendations in the latest quality report._\n")
+          else:
+              for i, r in enumerate(recs[:12], 1):
+                  print(f"{i}. {r}")
+              if len(recs) > 12:
+                  print(f"\n_…and **{len(recs) - 12}** more in artifact `apithreshold-gate-state`._")
+              print()
+
+          explain = Path("gate_explain.log")
+          report_log = Path("gate_report.log")
+          if explain.is_file() or report_log.is_file():
+              print("### Fix suggestions (explain + report)\n")
+              print("_LLM-generated on CI failure — full text in artifact `apithreshold-gate-recommendations`._\n")
+              print("<details><summary>Preview</summary>\n")
+              print("```text")
+              if explain.is_file():
+                  text = explain.read_text()
+                  print(text[:8000] + ("…\n" if len(text) > 8000 else ""))
+              if report_log.is_file():
+                  text = report_log.read_text()
+                  if explain.is_file():
+                      print("\n=== apithreshold report ===\n")
+                  print(text[:8000] + ("…\n" if len(text) > 8000 else ""))
+              print("```\n")
+              print("</details>\n")
+          PY
 
       - name: Export gate state for artifact
         if: always() && steps.policy.outputs.use_cache == 'true'

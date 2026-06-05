@@ -57,18 +57,46 @@ This is a **standalone git repository** you push under the **`apithreshold` org*
 
    **Organization secrets:** if you store the PAT as an org secret, ensure it is **allowed for repository `apithreshold-action-demo`** (org → Settings → Secrets and variables → Actions → repository access).
 
-4. Open **Actions** and confirm the workflow run completes. **Push** and **pull_request** use **`openapi.yaml`** and **`enforcing`** by default. **`workflow_dispatch`** adds UI inputs so you can run **`demo/openapi-ci-happy-path.yaml`** (minimal public spec + **demo-only** lowered enforcing threshold in CI for a reliable green job), **`demo/openapi-demo-fail.yaml`**, or **`learning`** mode without editing YAML. For a repo-wide non-blocking default, set **`APITHRESHOLD_MODE: learning`** in the workflow `env` (in **learning**, the CLI may still print *Gate Blocked* while exiting **0**).
+4. Open **Actions** and confirm the workflow run completes. **Push to `main`** uses the **progressive** policy (see below). **Same-repo PRs** use **warning** (non-blocking). **`workflow_dispatch`** defaults to **auto** (progressive) or explicit modes for scripted demos.
+
+## Progressive gate in CI (enterprise pattern)
+
+APIThreshold can **tighten the bar over time** instead of flipping straight to a hard **95% enforcing** gate on day one.
+
+| Phase | Default threshold | Fails the job? | When you reach it |
+|-------|-------------------|----------------|-------------------|
+| **learning** | 50% | No | First run on this cache key |
+| **warning** | 80% | No | After **14 days** on the timeline (`learning_days`) |
+| **enforcing** | 95% | **Yes** | After **7** warning days with daily best score ≥ **85%** |
+
+**How CI persists state (not Git):**
+
+1. **`actions/cache`** restores `~/.apithreshold/state/<project-id>/gate_state.json` before `apithreshold gate`.
+2. On **trusted** runs, **`--mode` is omitted** on `main` / branch push so the CLI calls **`get_current_mode()`** and can auto-advance.
+3. At job end, **`save-always: true`** writes updated state back to the cache key  
+   `apithreshold-gate-<repo>-<branch>`.
+4. Artifact **`apithreshold-gate-state`** (90-day retention) gives auditors a per-run snapshot.
+
+**Policy matrix (this workflow):**
+
+| Trigger | Policy | Cache |
+|---------|--------|-------|
+| **Push `main` / `master`** | Progressive (auto-advance) | Yes, per branch |
+| **Same-repo PR** | **Warning** (observe, exit 0) | Yes, per branch |
+| **Fork PR** | **Warning** only | No (no shared cache write) |
+| **`workflow_dispatch`** | User choice; **auto** = progressive | Yes when trusted |
+
+**Presenter line:** *“We start in learning so teams aren’t blocked while we measure; warning surfaces gaps in PRs; enforcing on `main` only after stable scores — state lives in Actions cache, not in git history.”*
 
 ## Live demo (about 5 minutes)
 
 Use this when you want a **clear narrative** for an audience: policy gate → optional deep remediation → artifacts (and a **sticky PR comment** on same-repo PRs).
 
 1. **Actions** → **APIThreshold gate** → **Run workflow**.
-2. **Happy path (green):** choose **`demo/openapi-ci-happy-path.yaml`** and **`enforcing`**, then **Run workflow**. The workflow seeds **`threshold_enforcing: 15%`** in gate state for that spec only (product default is **95%**) so the job stays green despite LLM variance and the tool’s default auth overlay. Check the log for the real **score** vs the **threshold** printed in the **Gate Passed** panel.
-3. **Failure path (red + recommendations):** choose **`demo/openapi-demo-fail.yaml`** and **`enforcing`**, then **Run workflow**. That file is intentionally minimal (no security, schemas, or error models), so the run is very likely to **fail** the gate and automatically run **explain** + **report**, producing **apithreshold-gate-recommendations**.
-4. Open the run → **Summary**: table at the top (**60-second tour**), then (on failure) failure sections and **LLM recommendations**.
-5. In the job log, expand **Run APIThreshold gate**; on failure, expand **Gate failure recommendations (explain + report)**.
-6. **Artifacts**: download **apithreshold-gate-full-log** every time; on failure, also **apithreshold-gate-recommendations**.
+2. **Progressive story:** choose **`openapi.yaml`** and mode **`auto`**, then **Run workflow**. Open **Summary** → **Progressive gate** table + **Progressive gate status** (stored mode, history count, last score). Re-run on **`main`** over time to show cache-backed mode advance (or explain the 14-day / 7-day rules from the Summary).
+3. **Happy path (green):** **`demo/openapi-ci-happy-path.yaml`** + **`enforcing`**. Demo-only **`threshold_enforcing: 15%`** is seeded (not used on progressive **`main`** runs).
+4. **Failure path (red + recommendations):** **`demo/openapi-demo-fail.yaml`** + **`enforcing`** → **explain/report** + **apithreshold-gate-recommendations**.
+5. **Summary** + job log steps + **Artifacts** (`apithreshold-gate-full-log`, **`apithreshold-gate-state`**, recommendations on failure).
 
 **Pass path (CI/CD happy path):** **Run workflow** with **`demo/openapi-ci-happy-path.yaml`** and **`enforcing`**. This repo’s workflow writes a **demo-only** gate config (`threshold_enforcing` **15%**) before `apithreshold gate` when that spec is selected, so **enforcing** completes green while the log still shows the model’s real score (often far below product **95%**). That override exists because APIThreshold adds a mandatory **auth** overlay hint even for tiny public specs, and bearer-gated demos often score very low when generated tests omit exhaustive **401/403** proofs. For the **real** product bar on your own APIs, rely on the default **95%** enforcing threshold (no seed). For a minimal in-repo spec without the seed, use **`openapi.yaml`** on **push/PR** defaults. **Fork pull requests** do not get the sticky PR comment (GitHub token cannot update upstream PR threads); use same-repo branches for that part of the demo.
 
@@ -147,5 +175,6 @@ On failure, the **Summary** includes score headline, remediation checklist, verb
 ## Next steps (product hardening)
 
 - Pin a **released** version: `pip install apithreshold==0.x.y`.
-- Add **`--project-id`** stability (already set to `${{ github.repository }}` in the workflow).
-- When the CLI supports **`--ci`** and **`GITHUB_OUTPUT` gate state**, extend the workflow and document passing state between runs (see your Pre-Beta technical track).
+- **`--project-id`** is already `${{ github.repository }}`; progressive cache is per **branch** (`github.ref_name`).
+- For **compliance-grade** history beyond Actions cache, export **`gate_state.json`** to object storage or the APIThreshold portal when available.
+- When the CLI supports **`--ci`** and **`GITHUB_OUTPUT`**, wire structured `GateResult` into required checks and branch protection.

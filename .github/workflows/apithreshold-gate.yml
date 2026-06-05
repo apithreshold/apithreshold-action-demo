@@ -47,6 +47,9 @@ jobs:
     env:
       APITHRESHOLD_SPEC: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.spec_path || 'openapi.yaml' }}
       APITHRESHOLD_PROJECT_ID: ${{ github.repository }}
+      # Public PEM is committed under license/; JWT only in secrets.APITHRESHOLD_LICENSE
+      APITHRESHOLD_LICENSE_PUBLIC_KEY_FILE: ${{ github.workspace }}/license/dev-public.pem
+      APITHRESHOLD_LICENSE_KID: dev
     permissions:
       contents: read
       actions: write

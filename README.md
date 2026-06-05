@@ -48,7 +48,9 @@ This is a **standalone git repository** you push under the **`apithreshold` org*
    |------|------|
    | **`OPENAI_API_KEY`** | Always — used by `apithreshold gate` for the LLM. |
    | **`BACKEND_GITHUB_TOKEN`** | **If `apithreshold/backend` is private** (default for many orgs). CI cannot `git clone` a private repo without credentials. |
-   | **`APITHRESHOLD_LICENSE`** | **Optional** — Ed25519 JWT for **Starter+** tiers. **Omit** on free tier (max **learning** / **warning** modes only). Required if you want **enforcing** / **strict** in CI. |
+   | **`APITHRESHOLD_LICENSE`** | **Option B (enforcing happy path):** Starter+ JWT from `license-issuer` (see **[license/README.md](license/README.md)**). **Omit** for free tier (**learning** / **warning** only). |
+
+   **Public key (in git, not a secret):** `license/dev-public.pem` is committed; the workflow sets `APITHRESHOLD_LICENSE_PUBLIC_KEY_FILE` to `${{ github.workspace }}/license/dev-public.pem` and `APITHRESHOLD_LICENSE_KID=dev`. You only add the **JWT** as the secret above.
 
    **PAT for `BACKEND_GITHUB_TOKEN`:** GitHub → **Settings** (your account or a bot user) → **Developer settings** → **Personal access tokens**. Create a **fine-grained** token with **Contents: Read** on repository **`apithreshold/backend`** only (minimum scope). Paste the token as secret **`BACKEND_GITHUB_TOKEN`** on **`apithreshold-action-demo`**. If your org uses **SAML SSO**, authorize the token for the org.
 

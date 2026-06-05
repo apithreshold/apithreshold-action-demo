@@ -2,3 +2,7 @@
 .venv/
 __pycache__/
 *.pyc
+
+# License JWTs — never commit; use GitHub secret APITHRESHOLD_LICENSE
+license/*.jwt
+license/*-license.txt
